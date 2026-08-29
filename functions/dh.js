@@ -2,12 +2,12 @@ const ADS = [
   {
     id: 'gg',
     url: 'https://fyb.pages.dev/gg.js',
-    weight: 60,
+    weight: 50,
   },
   {
     id: 'td',
     url: 'https://fyb.pages.dev/td.js',
-    weight: 40,
+    weight: 50,
   },
 ];
 
