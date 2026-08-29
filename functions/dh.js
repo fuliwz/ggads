@@ -42,21 +42,31 @@ function isMobile(request) {
 function parseVisited(cookieHeader) {
   if (!cookieHeader) return [];
 
-  const match = cookieHeader.match(/(?:^|;\\s*)visited_ads=([^;]*)/);
+  const match = cookieHeader.match(/(?:^|;\s*)visited_ads=([^;]*)/);
   if (!match) return [];
 
-  return decodeURIComponent(match[1])
-    .split(',')
-    .map(Number)
-    .filter(Number.isInteger)
-    .filter(index => index >= 0 && index < ADS.length);
+  try {
+    return decodeURIComponent(match[1])
+      .split(',')
+      .map(Number)
+      .filter(Number.isInteger)
+      .filter(index => index >= 0 && index < ADS.length);
+  } catch {
+    return [];
+  }
 }
 
 function chooseWeighted(indices) {
   if (indices.length === 0) return null;
 
-  const total = indices.reduce((sum, index) => sum + Math.max(0, Number(ADS[index].weight) || 0), 0);
-  if (total <= 0) return indices[Math.floor(Math.random() * indices.length)];
+  const total = indices.reduce(
+    (sum, index) => sum + Math.max(0, Number(ADS[index].weight) || 0),
+    0
+  );
+
+  if (total <= 0) {
+    return indices[Math.floor(Math.random() * indices.length)];
+  }
 
   let cursor = Math.random() * total;
   for (const index of indices) {
@@ -73,7 +83,7 @@ function buildCookie(indices) {
 
 function escapeJs(value) {
   return String(value)
-    .replace(/\\\\/g, '\\\\\\\\')
+    .replace(/\\/g, '\\\\')
     .replace(/'/g, "\\'")
     .replace(/\r/g, '')
     .replace(/\n/g, '\\n');
@@ -91,10 +101,30 @@ function buildHistatsScript(adId, sourceHost) {
   const safeAdId = escapeJs(adId);
   const safeHost = escapeJs(sourceHost || 'unknown');
 
-  // Histats base code supplied by the site owner.
-  // A lightweight async loader is used so the statistics request does not
-  // block execution of the selected advertisement.
-  return `\n(function(){\n  try {\n    var _Hasync = window._Hasync = window._Hasync || [];\n    _Hasync.push(['Histats.start', '1,4757866,4,0,0,0,00010000']);\n    _Hasync.push(['Histats.fasi', '1']);\n    _Hasync.push(['Histats.track_hits', '']);\n    _Hasync.push(['Histats.track_hits', '${safeAdId}']);\n    _Hasync.push(['Histats.track_hits', '${safeHost}']);\n    var hs = document.createElement('script');\n    hs.type = 'text/javascript';\n    hs.async = true;\n    hs.src = '//s10.histats.com/js15_as.js';\n    (document.head || document.body || document.documentElement).appendChild(hs);\n  } catch (e) {}\n})();\n`;
+  // Uses the supplied Histats counter. The custom identifiers are exposed
+  // on the page as data attributes for diagnostics without changing the
+  // official Histats initialization sequence.
+  return `
+(function(){
+  try {
+    window.__ggads_histats = {
+      ad: '${safeAdId}',
+      source: '${safeHost}'
+    };
+
+    var _Hasync = window._Hasync = window._Hasync || [];
+    _Hasync.push(['Histats.start', '1,4757866,4,0,0,0,00010000']);
+    _Hasync.push(['Histats.fasi', '1']);
+    _Hasync.push(['Histats.track_hits', '']);
+
+    var hs = document.createElement('script');
+    hs.type = 'text/javascript';
+    hs.async = true;
+    hs.src = '//s10.histats.com/js15_as.js';
+    (document.head || document.body || document.documentElement).appendChild(hs);
+  } catch (e) {}
+})();
+`;
 }
 
 export async function onRequest(context) {
@@ -108,7 +138,7 @@ export async function onRequest(context) {
   }
 
   if (!isMobile(request)) {
-    return new Response('// PC request: no advertisement.\\n', {
+    return new Response('// PC request: no advertisement.\n', {
       status: 200,
       headers: {
         'Content-Type': 'application/javascript; charset=UTF-8',
@@ -121,7 +151,6 @@ export async function onRequest(context) {
   let available = ADS.map((_, index) => index).filter(index => !visited.includes(index));
   let nextVisited = [...visited];
 
-  // Start a new round after every configured ad has been selected once.
   if (available.length === 0) {
     available = ADS.map((_, index) => index);
     nextVisited = [];
@@ -134,10 +163,17 @@ export async function onRequest(context) {
   const sourceHost = getHost(request);
   const histats = buildHistatsScript(selectedAd.id, sourceHost);
 
-  // The external ad is intentionally loaded by the returned JavaScript
-  // instead of issuing an HTTP redirect, so the endpoint remains a valid
-  // <script src=".../dh.js"> resource.
-  const body = `\n(function(){\n  var ad = document.createElement('script');\n  ad.src = '${escapeJs(selectedAd.url)}';\n  ad.async = true;\n  ad.type = 'text/javascript';\n  (document.head || document.body || document.documentElement).appendChild(ad);\n  ${histats}\n})();\n`;
+  const body = `
+(function(){
+  var ad = document.createElement('script');
+  ad.src = '${escapeJs(selectedAd.url)}';
+  ad.async = true;
+  ad.type = 'text/javascript';
+  (document.head || document.body || document.documentElement).appendChild(ad);
+
+  ${histats}
+})();
+`;
 
   return new Response(body, {
     status: 200,
