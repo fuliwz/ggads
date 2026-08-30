@@ -1,58 +1,64 @@
 # ggads
 
-Cloudflare Pages Functions 广告分发入口。
+纯静态 Cloudflare Pages 广告分发服务，不使用 Pages Functions。
 
 ## 接入
 
 在需要展示广告的网站中加入：
 
 ```html
-<script src="https://你的Pages域名/dh.js" type="text/javascript"></script>
+<script src="https://ggads-24k.pages.dev/dh.js" type="text/javascript"></script>
 ```
 
-例如部署到 `ggads.pages.dev` 后：
+`dh.js` 是普通 Pages 静态资源，因此请求不会进入 Pages Functions。
 
-```html
-<script src="https://ggads.pages.dev/dh.js" type="text/javascript"></script>
+## 广告配置
+
+广告配置位于根目录的 `ads.json`：
+
+```json
+{
+  "version": 1,
+  "roundSeconds": 60,
+  "ads": [
+    {
+      "id": "gg",
+      "name": "GG",
+      "url": "https://fyb.pages.dev/gg.js",
+      "weight": 50,
+      "enabled": true
+    },
+    {
+      "id": "td",
+      "name": "TD",
+      "url": "https://fyb.pages.dev/td.js",
+      "weight": 50,
+      "enabled": true
+    }
+  ]
+}
 ```
 
-## 当前广告
+以后更换广告、调整权重或停用广告，只需要修改 `ads.json` 并重新部署 Pages；接入网站不需要修改。
 
-广告配置位于 `functions/dh.js` 顶部的 `ADS` 数组：
+## 轮换逻辑
 
-- `id`：广告唯一标识
-- `url`：广告 JS 地址
-- `weight`：随机权重
+`dh.js` 在浏览器端读取 `ads.json`，根据 `weight` 随机选择广告，并使用 `localStorage` 保存本轮已访问的广告 ID。`roundSeconds` 控制轮换状态有效时间；`version` 变更后会使用新的本地存储键。
 
-当前配置：
+## 降低配置请求
 
-```js
-const ADS = [
-  {
-    id: 'gg',
-    url: 'https://fyb.pages.dev/gg.js',
-    weight: 60,
-  },
-  {
-    id: 'td',
-    url: 'https://fyb.pages.dev/td.js',
-    weight: 40,
-  },
-];
-```
-
-以后换广告只需要修改这里并重新部署 Pages。
-
-## Cookie 轮换
-
-移动端访问时使用 `visited_ads` Cookie 记录本轮已经选择过的广告。60 秒后 Cookie 自动过期；当本轮所有广告都选择过后，会开始新一轮。
+浏览器成功读取 `ads.json` 后会保存到本地存储，后续访问优先使用缓存配置，因此不会每次页面加载都请求配置文件。
 
 ## Histats
 
-已经加入提供的 Histats 统计代码：
+广告脚本成功或失败后异步加载 Histats：
 
 ```text
 1,4757866,4,0,0,0,00010000
 ```
 
-Histats 脚本采用异步方式加载，不作为广告脚本的前置阻塞步骤。
+Histats 不作为广告脚本的前置阻塞步骤。
+
+## 部署
+
+项目使用根目录作为 Pages 静态输出目录。仓库中不再包含 `functions/` 目录，因此不会创建 Pages Functions 路由。
