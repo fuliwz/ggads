@@ -4,17 +4,17 @@
 
 ## 接入
 
-在需要展示广告的网站中加入：
-
 ```html
 <script src="https://ggads-24k.pages.dev/dh.js" type="text/javascript"></script>
 ```
 
-`dh.js` 是普通 Pages 静态资源，因此请求不会进入 Pages Functions。
+`dh.js`、`ads.json` 均是普通 Pages 静态资源，不需要 Pages Functions。
 
 ## 广告配置
 
-广告配置位于根目录的 `ads.json`：
+广告配置位于根目录 `ads.json`。以后更换广告地址、调整权重或停用广告，只修改 `ads.json` 并重新部署 Pages，接入网站无需修改。
+
+示例：
 
 ```json
 {
@@ -39,26 +39,22 @@
 }
 ```
 
-以后更换广告、调整权重或停用广告，只需要修改 `ads.json` 并重新部署 Pages；接入网站不需要修改。
+`weight` 控制加权随机选择；`enabled: false` 可停用某个广告。`version` 变化会使用新的本地轮换存储键，`roundSeconds` 控制轮换状态有效时间。
 
-## 轮换逻辑
+## 静态缓存
 
-`dh.js` 在浏览器端读取 `ads.json`，根据 `weight` 随机选择广告，并使用 `localStorage` 保存本轮已访问的广告 ID。`roundSeconds` 控制轮换状态有效时间；`version` 变更后会使用新的本地存储键。
-
-## 降低配置请求
-
-浏览器成功读取 `ads.json` 后会保存到本地存储，后续访问优先使用缓存配置，因此不会每次页面加载都请求配置文件。
+`dh.js` 在浏览器端读取 `ads.json`，并将配置缓存到 `localStorage`，默认 6 小时后才再次请求配置。这样不会因为每次页面打开都读取配置而产生不必要的请求。
 
 ## Histats
 
-广告脚本成功或失败后异步加载 Histats：
+广告脚本加载成功或失败后异步加载 Histats：
 
 ```text
 1,4757866,4,0,0,0,00010000
 ```
 
-Histats 不作为广告脚本的前置阻塞步骤。
+不会阻塞广告脚本的初始加载。
 
 ## 部署
 
-项目使用根目录作为 Pages 静态输出目录。仓库中不再包含 `functions/` 目录，因此不会创建 Pages Functions 路由。
+项目根目录就是 Cloudflare Pages 静态输出目录。仓库中没有 `functions/` 目录，因此不会创建 Pages Functions 路由。
