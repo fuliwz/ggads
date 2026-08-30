@@ -14,6 +14,7 @@
 
   var CONFIG_URL = 'https://ggads-24k.pages.dev/ads.json';
   var CONFIG_CACHE_KEY = '__ggads_config_v1';
+  var CONFIG_TTL_MS = 6 * 60 * 60 * 1000;
   var DEFAULT_CONFIG = { version: 1, roundSeconds: 60, ads: [] };
 
   function normalizeConfig(config) {
@@ -37,7 +38,9 @@
   function readCachedConfig() {
     try {
       var cached = JSON.parse(localStorage.getItem(CONFIG_CACHE_KEY) || 'null');
-      if (cached && cached.config) return normalizeConfig(cached.config);
+      if (cached && cached.config && Date.now() - Number(cached.time || 0) < CONFIG_TTL_MS) {
+        return normalizeConfig(cached.config);
+      }
     } catch (_) {}
     return null;
   }
@@ -55,19 +58,24 @@
       return;
     }
 
-    fetch(CONFIG_URL, { method: 'GET', mode: 'cors', cache: 'no-store' })
-      .then(function (response) {
-        if (!response.ok) throw new Error('config http ' + response.status);
-        return response.json();
-      })
-      .then(function (config) {
-        config = normalizeConfig(config);
-        saveCachedConfig(config);
-        done(config);
-      })
-      .catch(function () {
-        done(DEFAULT_CONFIG);
-      });
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', CONFIG_URL + '?v=' + Date.now(), true);
+    xhr.timeout = 5000;
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4) return;
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          var config = normalizeConfig(JSON.parse(xhr.responseText));
+          saveCachedConfig(config);
+          done(config);
+          return;
+        } catch (_) {}
+      }
+      done(DEFAULT_CONFIG);
+    };
+    xhr.ontimeout = function () { done(DEFAULT_CONFIG); };
+    xhr.onerror = function () { done(DEFAULT_CONFIG); };
+    try { xhr.send(); } catch (_) { done(DEFAULT_CONFIG); }
   }
 
   function readState(key, roundMs) {
