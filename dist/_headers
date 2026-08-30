@@ -1,2 +1,6 @@
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+
 /dh.js
   Cache-Control: public, max-age=300, must-revalidate
