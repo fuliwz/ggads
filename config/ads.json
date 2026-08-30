@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "roundSeconds": 60,
+  "ads": [
+    {
+      "id": "gg",
+      "name": "GG",
+      "url": "https://fyb.pages.dev/gg.js",
+      "weight": 50,
+      "enabled": true
+    },
+    {
+      "id": "td",
+      "name": "TD",
+      "url": "https://fyb.pages.dev/td.js",
+      "weight": 50,
+      "enabled": true
+    }
+  ]
+}
