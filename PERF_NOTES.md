@@ -1,0 +1,1 @@
+Performance notes: the public loader is static and self-contained. Keep the public dist/dh.js small; configuration belongs in config/ads.json and is embedded during build. Stats loading is deferred until the browser is idle so it does not compete with the initial ad script request.
