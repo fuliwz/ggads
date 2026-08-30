@@ -1,0 +1,11 @@
+{
+  "name": "ggads",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "devDependencies": {
+    "terser": "^5.43.1"
+  }
+}
