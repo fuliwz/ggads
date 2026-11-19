@@ -10,6 +10,8 @@
 
   /*__GGADS_CONFIG__*/
 
+  var REQUEST_TIMEOUT_MS = 3000;
+
   function weightedPick(items) {
     var total = 0;
     for (var i = 0; i < items.length; i++) total += Math.max(0, Number(items[i].weight) || 0);
@@ -23,19 +25,42 @@
     return items[items.length - 1];
   }
 
-  function loadHistats() {
-    if (window.__ggads_histats_loaded) return;
-    window.__ggads_histats_loaded = true;
+  function scheduleHistats() {
+    if (window.__ggads_histats_scheduled || window.__ggads_histats_loaded) return;
+    window.__ggads_histats_scheduled = true;
 
-    var h = window._Hasync = window._Hasync || [];
-    h.push(["Histats.start", "1,4757866,4,0,0,0,00010000"]);
-    h.push(["Histats.fasi", "1"]);
-    h.push(["Histats.track_hits", ""]);
+    var run = function () {
+      if (window.__ggads_histats_loaded) return;
+      window.__ggads_histats_loaded = true;
 
-    var s = document.createElement("script");
-    s.async = true;
-    s.src = "https://s10.histats.com/js15_as.js";
-    (document.head || document.documentElement).appendChild(s);
+      var h = window._Hasync = window._Hasync || [];
+      h.push(["Histats.start", "1,4757866,4,0,0,0,00010000"]);
+      h.push(["Histats.fasi", "1"]);
+      h.push(["Histats.track_hits", ""]);
+
+      var s = document.createElement("script");
+      s.async = true;
+      s.src = "https://s10.histats.com/js15_as.js";
+      (document.head || document.documentElement).appendChild(s);
+    };
+
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(run, { timeout: 2000 });
+    } else {
+      window.setTimeout(run, 1000);
+    }
+  }
+
+  function recordResult(result) {
+    window.__ggads_last_result = result;
+    try {
+      localStorage.setItem("__ggads_last_result_v1", JSON.stringify(result));
+    } catch (_) {}
+    try {
+      if (typeof window.CustomEvent === "function") {
+        window.dispatchEvent(new CustomEvent("ggads:result", { detail: result }));
+      }
+    } catch (_) {}
   }
 
   var config = typeof STATIC_CONFIG === "object" ? STATIC_CONFIG : null;
@@ -70,20 +95,81 @@
     candidates = ads.slice();
   }
 
-  var selected = weightedPick(candidates);
-  if (!selected) return;
+  /* Weighted ordering without replacement: the first ad keeps the existing
+     weighted selection behavior, while failures can fall back to other ads. */
+  var ordered = [];
+  while (candidates.length) {
+    var next = weightedPick(candidates);
+    if (!next) break;
+    ordered.push(next);
+    candidates.splice(candidates.indexOf(next), 1);
+  }
 
-  state.visited.push(selected.id);
-  try {
-    localStorage.setItem(rotationKey, JSON.stringify(state));
-  } catch (_) {}
+  if (!ordered.length) return;
 
-  var script = document.createElement("script");
-  script.src = selected.url;
-  script.async = true;
-  script.type = "text/javascript";
-  script.setAttribute("data-ggads-id", selected.id);
-  script.onload = loadHistats;
-  script.onerror = loadHistats;
-  (document.head || document.documentElement).appendChild(script);
+  scheduleHistats();
+
+  var startedAt = Date.now();
+  var attempts = [];
+  var index = 0;
+
+  function persistRotation(ad) {
+    if (state.visited.indexOf(ad.id) < 0) state.visited.push(ad.id);
+    try {
+      localStorage.setItem(rotationKey, JSON.stringify(state));
+    } catch (_) {}
+  }
+
+  function finish(status, ad) {
+    recordResult({
+      status: status,
+      adId: ad ? ad.id : null,
+      attempts: attempts,
+      durationMs: Date.now() - startedAt,
+      timestamp: Date.now()
+    });
+  }
+
+  function loadNext() {
+    if (index >= ordered.length) {
+      finish("failed", null);
+      return;
+    }
+
+    var ad = ordered[index++];
+    persistRotation(ad);
+    attempts.push({ id: ad.id, status: "loading" });
+
+    var script = document.createElement("script");
+    var settled = false;
+    var timer = window.setTimeout(function () {
+      settle(false, "timeout");
+    }, REQUEST_TIMEOUT_MS);
+
+    function settle(success, status) {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+
+      var attempt = attempts[attempts.length - 1];
+      if (attempt && attempt.id === ad.id) attempt.status = status;
+
+      if (success) {
+        finish("loaded", ad);
+      } else {
+        if (script.parentNode) script.parentNode.removeChild(script);
+        loadNext();
+      }
+    }
+
+    script.src = ad.url;
+    script.async = true;
+    script.type = "text/javascript";
+    script.setAttribute("data-ggads-id", ad.id);
+    script.onload = function () { settle(true, "loaded"); };
+    script.onerror = function () { settle(false, "error"); };
+    (document.head || document.documentElement).appendChild(script);
+  }
+
+  loadNext();
 })();
