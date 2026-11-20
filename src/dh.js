@@ -158,6 +158,15 @@
         finish("loaded", ad);
       } else {
         if (script.parentNode) script.parentNode.removeChild(script);
+
+        // A timed-out request may still finish executing later.
+        // Never inject a second provider after timeout, or both ads may render.
+        if (status === "timeout") {
+          finish("timeout", ad);
+          return;
+        }
+
+        // A hard network/CSP error did not load the script, so fallback is safe.
         loadNext();
       }
     }
