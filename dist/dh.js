@@ -8,7 +8,7 @@
   /* Keep execution limited to mobile traffic as configured by the project. */
   if (!/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || "")) return;
 
-  var STATIC_CONFIG = {"version":2,"roundSeconds":60,"ads":[{"id":"gg","name":"GG","url":"https://fyb.pages.dev/gg.js","weight":50,"enabled":true},{"id":"td","name":"TD","url":"https://fyb.pages.dev/td.js","weight":50,"enabled":true}]};
+  var STATIC_CONFIG = {"version":3,"roundSeconds":60,"ads":[{"id":"gg","name":"GG","url":"https://fyb.pages.dev/gg.js","weight":50,"enabled":true},{"id":"td","name":"TD","url":"https://fyb.pages.dev/td.js","weight":50,"enabled":true}]};
 
   var REQUEST_TIMEOUT_MS = 3000;
 
@@ -158,6 +158,15 @@
         finish("loaded", ad);
       } else {
         if (script.parentNode) script.parentNode.removeChild(script);
+
+        // A timed-out request may still finish executing later.
+        // Never inject a second provider after timeout, or both ads may render.
+        if (status === "timeout") {
+          finish("timeout", ad);
+          return;
+        }
+
+        // A hard network/CSP error did not load the script, so fallback is safe.
         loadNext();
       }
     }
