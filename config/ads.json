@@ -1,58 +1,26 @@
 {
-  "version": 5,
+  "version": 6,
   "mobileOnly": true,
   "roundSeconds": 60,
-  "requestTimeoutMs": 6000,
+  "requestTimeoutMs": 8000,
   "maxFallbacks": 1,
-  "allowedFrameHosts": [],
-  "slots": [
-    {
-      "id": "top-banner",
-      "label": "广告",
-      "height": 100,
-      "maxWidth": 970,
-      "enabled": true
-    },
-    {
-      "id": "in-article",
-      "label": "广告",
-      "height": 250,
-      "maxWidth": 970,
-      "enabled": true
-    }
+  "preconnect": [
+    "https://fyb.pages.dev"
   ],
   "ads": [
     {
       "id": "gg",
       "name": "GG",
-      "placement": "top-banner",
-      "frameUrl": "",
+      "url": "https://fyb.pages.dev/gg.js",
       "weight": 50,
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "td",
       "name": "TD",
-      "placement": "top-banner",
-      "frameUrl": "",
+      "url": "https://fyb.pages.dev/td.js",
       "weight": 50,
-      "enabled": false
-    },
-    {
-      "id": "gg-article",
-      "name": "GG",
-      "placement": "in-article",
-      "frameUrl": "",
-      "weight": 50,
-      "enabled": false
-    },
-    {
-      "id": "td-article",
-      "name": "TD",
-      "placement": "in-article",
-      "frameUrl": "",
-      "weight": 50,
-      "enabled": false
+      "enabled": true
     }
   ]
 }
