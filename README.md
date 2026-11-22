@@ -9,7 +9,7 @@ config/ads.json  →  build.js  →  dist/dh.js
 src/dh.js        →     Terser  →  dist/index.html
 ```
 
-`config/ads.json` 是唯一需要修改的广告配置入口。构建时会校验配置、把配置静态嵌入 `dh.js`，再使用 Terser 压缩和变量混淆。Cloudflare Pages 只发布 `dist/`，线上不需要暴露配置文件或源码。
+`config/ads.json` 是唯一广告配置入口。构建时校验配置、嵌入 `dh.js` 并压缩，Cloudflare Pages 仅发布 `dist/`。
 
 ## 接入
 
@@ -17,21 +17,25 @@ src/dh.js        →     Terser  →  dist/index.html
 <script src="https://ggads-24k.pages.dev/dh.js" defer></script>
 ```
 
-脚本仅在移动端执行广告选择，保留权重随机和本地轮换机制。每个页面只会选择一个广告脚本；发生明确的网络或 CSP 加载错误时，才会尝试下一个广告。若 3 秒内未收到加载结果，则停止备用广告切换，避免超时脚本晚到执行时与备用广告重叠。所有广告失败不会阻塞网站主体内容。
+当前只对移动端流量执行广告选择。广告加载完全异步，不阻塞网站主体内容。
 
-Histats 与广告请求解耦，在浏览器空闲时独立加载（不支持 `requestIdleCallback` 时使用定时器回退）。
+## 加载策略
 
-## 广告加载结果监测
+- 按权重随机排列广告源，保留配置的流量权重。
+- 默认等待 8 秒；可通过 `requestTimeoutMs` 调整。
+- 只有明确的脚本加载错误才尝试一个备用广告。
+- 超时属于不确定状态：浏览器可能仍会执行晚到脚本，因此不会在超时后并发注入第二个广告源，避免重复展示。
+- Histats 独立于广告加载，在浏览器空闲时运行。
 
-加载器在页面内提供最近一次结果：
+## 本地诊断
 
-- `window.__ggads_last_result`：最近一次加载结果对象。
-- `localStorage.__ggads_last_result_v1`：最近一次结果的本地记录。
-- `ggads:result`：加载结束时派发的自定义事件。
+- `window.__ggads_last_result`：最近一次结果。
+- `localStorage.__ggads_last_result_v1`：本地记录。
+- `ggads:result`：加载结束时派发的事件。
 
-结果包含整体状态、成功广告 ID、各广告尝试状态、总耗时和时间戳。数据只保存在当前浏览器，不会上传到第三方。状态为 `loaded` 表示广告 JS 文件触发了 `load` 事件，不代表广告商后续素材一定成功展示。
+结果包括页面路径、域名、浏览器 UA、浏览器可提供的网络提示、广告源 ID、状态和加载耗时。信息只保存在当前浏览器，不会上传。注意：JS `load` 事件只证明脚本加载，不证明广告素材成功渲染或达到可视展示标准。
 
-示例监听：
+监听示例：
 
 ```javascript
 window.addEventListener("ggads:result", function (event) {
@@ -41,59 +45,45 @@ window.addEventListener("ggads:result", function (event) {
 
 ## 修改广告
 
-只需要编辑：
-
-```text
-config/ads.json
-```
-
-示例：
+编辑 `config/ads.json`：
 
 ```json
 {
-  "version": 2,
+  "version": 4,
   "roundSeconds": 60,
+  "requestTimeoutMs": 8000,
+  "maxFallbacks": 1,
   "ads": [
     {
       "id": "gg",
       "name": "GG",
       "url": "https://example.com/gg.js",
-      "weight": 70,
+      "weight": 50,
       "enabled": true
     },
     {
       "id": "td",
       "name": "TD",
       "url": "https://example.com/td.js",
-      "weight": 30,
+      "weight": 50,
       "enabled": true
     }
   ]
 }
 ```
 
-- `weight`：相对权重，不要求加起来等于 100。
-- `enabled: false`：临时停用广告。
-- `version`：修改后递增，可让客户端使用新的轮换状态键。
-- `roundSeconds`：轮换状态有效期，单位秒。
-- 广告加载超时目前固定为 3000 毫秒；可在 `src/dh.js` 的 `REQUEST_TIMEOUT_MS` 修改。
+- `weight` 是相对权重，无需合计为 100。
+- `enabled: false` 可停用广告源。
+- 修改配置后递增 `version`，使客户端轮换状态键更新。
+- `roundSeconds` 是轮换状态有效期。
+- `requestTimeoutMs` 默认 8000 毫秒。
+- `maxFallbacks` 默认 1，表示最多尝试一个备用源。
 
-修改配置后执行：
+构建：
 
 ```bash
 npm install
 npm run build
 ```
 
-Cloudflare Pages 构建命令使用 `npm run build`，输出目录为 `dist`。
-
-## 构建安全检查
-
-`build.js` 会检查 JSON、广告列表、重复 ID、URL、权重、版本、轮换时间、配置注入标记及 Terser 输出。
-
-## 部署
-
-- Build command: `npm run build`
-- Build output directory: `dist`
-- 不使用 Pages Functions
-- `/dh.js` 使用短缓存，以便配置更新后较快生效。
+Cloudflare Pages：Build command 为 `npm run build`，输出目录为 `dist`。
