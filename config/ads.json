@@ -4,13 +4,11 @@
   "roundSeconds": 60,
   "requestTimeoutMs": 6000,
   "maxFallbacks": 1,
-  "statusGraceMs": 1500,
   "allowedFrameHosts": [],
   "slots": [
     {
       "id": "top-banner",
       "label": "广告",
-      "width": 320,
       "height": 100,
       "maxWidth": 970,
       "enabled": true
@@ -18,7 +16,6 @@
     {
       "id": "in-article",
       "label": "广告",
-      "width": 300,
       "height": 250,
       "maxWidth": 970,
       "enabled": true
