@@ -1,89 +1,65 @@
-# ggads
+# GGADS
 
-纯静态 Cloudflare Pages 广告分发服务，不使用 Pages Functions。
+GGADS is a static Cloudflare Pages ad-slot loader. It does not use Pages Functions.
 
-## 架构
+## New visible-slot integration
 
-```text
-config/ads.json  →  build.js  →  dist/dh.js
-src/dh.js        →     Terser  →  dist/index.html
-```
+The loader starts asynchronously and watches for explicitly placed ad slots. It does not create transparent click layers, hijack touch events, force navigation, or inject the legacy `fyb.pages.dev/gg.js` / `td.js` scripts.
 
-`config/ads.json` 是唯一广告配置入口。构建时校验配置、嵌入 `dh.js` 并压缩，Cloudflare Pages 仅发布 `dist/`。
-
-## 接入
+Add the connection hint and loader early in each site's `<head>`:
 
 ```html
-<script src="https://ggads-24k.pages.dev/dh.js" defer></script>
+<link rel="preconnect" href="https://ggads-24k.pages.dev" crossorigin>
+<script async src="https://ggads-24k.pages.dev/dh.js"></script>
 ```
 
-当前只对移动端流量执行广告选择。广告加载完全异步，不阻塞网站主体内容。
+Add visible, reserved placements where ads should appear:
 
-## 加载策略
+```html
+<div data-ggads-slot="top-banner"></div>
 
-- 按权重随机排列广告源，保留配置的流量权重。
-- 默认等待 8 秒；可通过 `requestTimeoutMs` 调整。
-- 只有明确的脚本加载错误才尝试一个备用广告。
-- 超时属于不确定状态：浏览器可能仍会执行晚到脚本，因此不会在超时后并发注入第二个广告源，避免重复展示。
-- Histats 独立于广告加载，在浏览器空闲时运行。
+<!-- Place this inside article content where an in-article ad is allowed. -->
+<div data-ggads-slot="in-article"></div>
+```
 
-## 本地诊断
+The loader uses a MutationObserver, so slots added later by a page template are also detected. It reserves the configured slot height to reduce layout shift. A slot is hidden when no approved provider is configured for it.
 
-- `window.__ggads_last_result`：最近一次结果。
-- `localStorage.__ggads_last_result_v1`：本地记录。
-- `ggads:result`：加载结束时派发的事件。
+## Provider configuration
 
-结果包括页面路径、域名、浏览器 UA、浏览器可提供的网络提示、广告源 ID、状态和加载耗时。信息只保存在当前浏览器，不会上传。注意：JS `load` 事件只证明脚本加载，不证明广告素材成功渲染或达到可视展示标准。
+Only use official display-ad iframe URLs supplied by the ad network. Do not put the old overlay/redirect scripts in `frameUrl`.
 
-监听示例：
+Edit `config/ads.json`:
+
+- `allowedFrameHosts`: exact provider hostnames permitted for embedded ads (for example, the host the ad network documents for its iframe tag).
+- `ads[].frameUrl`: the provider's official HTTPS iframe URL.
+- `ads[].placement`: must match a `slots[].id`.
+- `weight`: relative weight for weighted rotation.
+- `enabled`: keep false until the official provider embed is configured and tested.
+- `requestTimeoutMs`: request deadline. A frame that does not load by this deadline is removed before the one configured fallback is attempted.
+
+GGADS embeds each creative in a sandboxed iframe without top-navigation permission. The frame can send an optional status message to the parent:
 
 ```javascript
-window.addEventListener("ggads:result", function (event) {
-  console.log("GGADS result:", event.detail);
-});
+parent.postMessage({ type: "ggads:status", status: "filled" }, "*");
+// or, when the provider confirms no ad is available:
+parent.postMessage({ type: "ggads:status", status: "empty" }, "*");
 ```
 
-## 修改广告
+The loader accepts messages only from the current iframe's `contentWindow`. If the provider does not support this message contract, the result is `frame_loaded_unconfirmed`: the frame document loaded, but that is not proof of a rendered or viewable creative. Do not treat this as an impression.
 
-编辑 `config/ads.json`：
+## Diagnostics
 
-```json
-{
-  "version": 4,
-  "roundSeconds": 60,
-  "requestTimeoutMs": 8000,
-  "maxFallbacks": 1,
-  "ads": [
-    {
-      "id": "gg",
-      "name": "GG",
-      "url": "https://example.com/gg.js",
-      "weight": 50,
-      "enabled": true
-    },
-    {
-      "id": "td",
-      "name": "TD",
-      "url": "https://example.com/td.js",
-      "weight": 50,
-      "enabled": true
-    }
-  ]
-}
-```
+- `window.__ggads_last_result`
+- `localStorage.__ggads_last_result_v2`
+- `ggads:result` custom event
 
-- `weight` 是相对权重，无需合计为 100。
-- `enabled: false` 可停用广告源。
-- 修改配置后递增 `version`，使客户端轮换状态键更新。
-- `roundSeconds` 是轮换状态有效期。
-- `requestTimeoutMs` 默认 8000 毫秒。
-- `maxFallbacks` 默认 1，表示最多尝试一个备用源。
+Results include slot/provider status, elapsed time, page path, browser information, and supported network hints. Data stays in the visitor's browser; GGADS does not transmit it to a server.
 
-构建：
+## Build
 
 ```bash
 npm install
 npm run build
 ```
 
-Cloudflare Pages：Build command 为 `npm run build`，输出目录为 `dist`。
+Cloudflare Pages build command: `npm run build`; output directory: `dist`.
