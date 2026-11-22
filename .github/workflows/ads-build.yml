@@ -25,5 +25,7 @@ jobs:
           node --check dist/dh.js
           grep -q 'data-ggads-slot' dist/dh.js
           grep -q 'ggads:status' dist/dh.js
+          grep -q 'allow-scripts allow-forms allow-popups' dist/dh.js
+          ! grep -Eq 'touchstart|touchend|top\\.location|window\\.location\\.href|insertAdjacentHTML' src/dh.js
           ! grep -q 'fyb.pages.dev/gg.js' dist/dh.js
           ! grep -q 'fyb.pages.dev/td.js' dist/dh.js
