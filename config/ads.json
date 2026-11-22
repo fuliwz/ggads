@@ -1,6 +1,8 @@
 {
-  "version": 3,
+  "version": 4,
   "roundSeconds": 60,
+  "requestTimeoutMs": 8000,
+  "maxFallbacks": 1,
   "ads": [
     {
       "id": "gg",
