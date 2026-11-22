@@ -1,8 +1,12 @@
 {
-  "version": 4,
+  "version": 6,
+  "mobileOnly": true,
   "roundSeconds": 60,
   "requestTimeoutMs": 8000,
   "maxFallbacks": 1,
+  "preconnect": [
+    "https://fyb.pages.dev"
+  ],
   "ads": [
     {
       "id": "gg",

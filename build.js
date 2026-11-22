@@ -23,56 +23,49 @@ try {
   fail(`invalid config/ads.json: ${error.message}`);
 }
 
-if (!config || typeof config !== 'object' || Array.isArray(config)) {
-  fail('config/ads.json must contain a JSON object');
-}
-
-if (!Array.isArray(config.ads) || config.ads.length === 0) {
-  fail('config.ads must contain at least one ad');
-}
+if (!config || typeof config !== 'object' || Array.isArray(config)) fail('config must be an object');
+if (!Array.isArray(config.ads) || config.ads.length !== 2) fail('config.ads must contain exactly the two required providers');
+if (!Array.isArray(config.preconnect)) fail('config.preconnect must be an array');
 
 const ids = new Set();
 config.ads.forEach((ad, index) => {
-  if (!ad || typeof ad !== 'object') fail(`ads[${index}] must be an object`);
-  if (!ad.id || !ad.url) fail(`ads[${index}] requires id and url`);
+  if (!ad || typeof ad !== 'object' || !ad.id || !ad.url) fail(`ads[${index}] requires id and url`);
   if (ids.has(ad.id)) fail(`duplicate ad id: ${ad.id}`);
   ids.add(ad.id);
-  try {
-    new URL(ad.url);
-  } catch (_) {
-    fail(`invalid ad url at ads[${index}]: ${ad.url}`);
-  }
+  let url;
+  try { url = new URL(ad.url); } catch (_) { fail(`invalid ad URL at ads[${index}]`); }
+  if (url.protocol !== 'https:') fail(`ads[${index}] URL must use HTTPS`);
   if (ad.weight !== undefined && (!Number.isFinite(Number(ad.weight)) || Number(ad.weight) < 0)) {
     fail(`invalid weight at ads[${index}]`);
   }
 });
+if (!ids.has('gg') || !ids.has('td')) fail('both gg.js and td.js providers are required');
+if (config.ads.find((ad) => ad.id === 'gg').url !== 'https://fyb.pages.dev/gg.js') fail('GG provider URL changed unexpectedly');
+if (config.ads.find((ad) => ad.id === 'td').url !== 'https://fyb.pages.dev/td.js') fail('TD provider URL changed unexpectedly');
 
-if (!Number.isFinite(Number(config.version)) || Number(config.version) < 1) {
-  fail('version must be a positive number');
-}
+config.preconnect.forEach((origin, index) => {
+  let url;
+  try { url = new URL(origin); } catch (_) { fail(`invalid preconnect origin at index ${index}`); }
+  if (url.protocol !== 'https:' || url.origin !== origin) fail(`preconnect[${index}] must be an HTTPS origin`);
+});
 
-if (!Number.isFinite(Number(config.roundSeconds)) || Number(config.roundSeconds) < 1) {
-  fail('roundSeconds must be at least 1');
-}
+if (!Number.isFinite(Number(config.version)) || Number(config.version) < 1) fail('version must be positive');
+if (!Number.isFinite(Number(config.roundSeconds)) || Number(config.roundSeconds) < 1) fail('roundSeconds must be at least 1');
+if (!Number.isFinite(Number(config.requestTimeoutMs)) || Number(config.requestTimeoutMs) < 1000) fail('requestTimeoutMs must be at least 1000');
+if (!Number.isFinite(Number(config.maxFallbacks)) || Number(config.maxFallbacks) < 0 || Number(config.maxFallbacks) > 1) fail('maxFallbacks must be 0 or 1');
 
 const source = fs.readFileSync(srcPath, 'utf8');
-if (!source.includes(CONFIG_MARKER)) {
-  fail(`source marker ${CONFIG_MARKER} was not found in src/dh.js`);
-}
+if (!source.includes(CONFIG_MARKER)) fail('config marker not found in src/dh.js');
+if (!source.includes('fetchPriority') || !source.includes('preconnect')) fail('early loading and preconnect support is required');
 
 const embedded = source.replace(CONFIG_MARKER, `var STATIC_CONFIG = ${JSON.stringify(config)};`);
 
 (async () => {
   const result = await minify(embedded, {
-    compress: {
-      passes: 2,
-      drop_console: true,
-      drop_debugger: true
-    },
+    compress: { passes: 2, drop_console: true, drop_debugger: true },
     mangle: true,
     format: { comments: false }
   });
-
   if (result.error) throw result.error;
   if (!result.code) fail('Terser returned empty output');
 
@@ -82,6 +75,5 @@ const embedded = source.replace(CONFIG_MARKER, `var STATIC_CONFIG = ${JSON.strin
     path.join(distPath, 'index.html'),
     '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>ggads</title></head><body><h1>ggads</h1></body></html>\n'
   );
-
-  console.log(`[ggads build] generated dist/dh.js with ${config.ads.length} ad entries`);
+  console.log('[ggads build] generated early GG/TD script loader');
 })();
