@@ -346,7 +346,6 @@
     }
 
     // Each slot accepts status messages only from its currently embedded frame.
-    var originalInsert = slot.insertBefore;
     state.insertListener = onProviderMessage;
     window.addEventListener("message", onProviderMessage);
 
@@ -394,7 +393,7 @@
       return;
     }
     scan(document.documentElement);
-    if (typeof MutationObserver === "function") {
+    if (typeof MutationObserver === "function" && !observer) {
       observer = new MutationObserver(function (mutations) {
         mutations.forEach(function (mutation) {
           for (var i = 0; i < mutation.addedNodes.length; i++) {
