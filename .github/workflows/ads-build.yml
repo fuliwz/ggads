@@ -1,0 +1,29 @@
+name: Build and validate ad loader
+
+on:
+  push:
+    branches:
+      - main
+      - fix/ad-fill-reliability-2026-11
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Validate generated loader
+        run: |
+          test -s dist/dh.js
+          node --check dist/dh.js
+          grep -q 'requestTimeoutMs' config/ads.json
+          grep -q 'fyb.pages.dev/gg.js' dist/dh.js
+          grep -q 'fyb.pages.dev/td.js' dist/dh.js
