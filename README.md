@@ -1,59 +1,38 @@
 # GGADS
 
-GGADS is a static Cloudflare Pages ad-slot loader. It does not use Pages Functions.
+GGADS is a static Cloudflare Pages loader for the existing GG and TD JavaScript ad providers.
 
-## New visible-slot integration
+## Early loading integration
 
-The loader starts asynchronously and watches for explicitly placed ad slots. It does not create transparent click layers, hijack touch events, force navigation, or inject the legacy `fyb.pages.dev/gg.js` / `td.js` scripts.
-
-Add the connection hint and loader early in each site's `<head>`:
+Add these lines as early as possible inside the publisher site's `<head>`:
 
 ```html
-<link rel="preconnect" href="https://ggads-24k.pages.dev" crossorigin>
+<link rel="preconnect" href="https://fyb.pages.dev" crossorigin>
 <script async src="https://ggads-24k.pages.dev/dh.js"></script>
 ```
 
-Add visible, reserved placements where ads should appear:
+Do not use `defer`, wait for `window.onload`, or place the loader at the bottom of the page. The loader injects the selected provider script as soon as `dh.js` executes and sets high fetch priority.
 
-```html
-<div data-ggads-slot="top-banner"></div>
+GGADS keeps the required scripts:
 
-<!-- Place this inside article content where an in-article ad is allowed. -->
-<div data-ggads-slot="in-article"></div>
-```
+- `https://fyb.pages.dev/gg.js`
+- `https://fyb.pages.dev/td.js`
 
-The loader uses a MutationObserver, so slots added later by a page template are also detected. It reserves the configured slot height to reduce layout shift. A slot is hidden when no approved provider is configured for it.
+Both providers are enabled with 50/50 relative weight. Provider selection and rotation are preserved. A definite script network error may try one fallback; an ambiguous timeout does not, since the original script may still execute late.
 
-## Provider configuration
+## Important timing detail
 
-Only use official display-ad iframe URLs supplied by the ad network. Do not put the old overlay/redirect scripts in `frameUrl`.
+The GG/TD provider files contain their own internal timers and then load additional provider-controlled resources. GGADS can reduce the time before the first provider request by starting earlier and preconnecting to `fyb.pages.dev`, but it cannot guarantee the provider's final creative display time. The provider-owned delays are left unchanged so their behavior is not silently altered.
 
-Edit `config/ads.json`:
-
-- `allowedFrameHosts`: exact provider hostnames permitted for embedded ads (for example, the host the ad network documents for its iframe tag).
-- `ads[].frameUrl`: the provider's official HTTPS iframe URL.
-- `ads[].placement`: must match a `slots[].id`.
-- `weight`: relative weight for weighted rotation.
-- `enabled`: keep false until the official provider embed is configured and tested.
-- `requestTimeoutMs`: request deadline. A frame that does not load by this deadline is removed before the one configured fallback is attempted.
-
-GGADS embeds each creative in a sandboxed iframe without top-navigation permission. The frame can send an optional status message to the parent:
-
-```javascript
-parent.postMessage({ type: "ggads:status", status: "filled" }, "*");
-// or, when the provider confirms no ad is available:
-parent.postMessage({ type: "ggads:status", status: "empty" }, "*");
-```
-
-The loader accepts messages only from the current iframe's `contentWindow`. If the provider does not support this message contract, the result is `frame_loaded_unconfirmed`: the frame document loaded, but that is not proof of a rendered or viewable creative. Do not treat this as an impression.
+The browser `load` event only means the JavaScript file arrived; it does not prove a creative rendered or was viewable.
 
 ## Diagnostics
 
 - `window.__ggads_last_result`
-- `localStorage.__ggads_last_result_v2`
+- `localStorage.__ggads_last_result_v3`
 - `ggads:result` custom event
 
-Results include slot/provider status, elapsed time, page path, browser information, and supported network hints. Data stays in the visitor's browser; GGADS does not transmit it to a server.
+The diagnostic record includes selected provider, attempt status, duration, page path, browser UA, and supported network hints. It remains local to the visitor's browser.
 
 ## Build
 
@@ -62,4 +41,4 @@ npm install
 npm run build
 ```
 
-Cloudflare Pages build command: `npm run build`; output directory: `dist`.
+Cloudflare Pages: build command `npm run build`, output directory `dist`.
