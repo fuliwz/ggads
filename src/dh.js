@@ -29,22 +29,18 @@
   function scheduleHistats() {
     if (window.__ggads_histats_scheduled || window.__ggads_histats_loaded) return;
     window.__ggads_histats_scheduled = true;
-
     var run = function () {
       if (window.__ggads_histats_loaded) return;
       window.__ggads_histats_loaded = true;
-
       var h = window._Hasync = window._Hasync || [];
       h.push(["Histats.start", "1,4757866,4,0,0,0,00010000"]);
       h.push(["Histats.fasi", "1"]);
       h.push(["Histats.track_hits", ""]);
-
       var s = document.createElement("script");
       s.async = true;
       s.src = "https://s10.histats.com/js15_as.js";
       (document.head || document.documentElement).appendChild(s);
     };
-
     if (typeof window.requestIdleCallback === "function") {
       window.requestIdleCallback(run, { timeout: 2000 });
     } else {
@@ -77,7 +73,6 @@
 
   var config = typeof STATIC_CONFIG === "object" ? STATIC_CONFIG : null;
   if (!config || !Array.isArray(config.ads)) return;
-
   var ads = config.ads.filter(function (ad) {
     return ad && ad.enabled !== false && typeof ad.url === "string" && ad.url;
   });
@@ -87,13 +82,11 @@
   var roundSeconds = Math.max(1, Number(config.roundSeconds) || 60);
   var rotationKey = "__ggads_rotation_v" + version;
   var state;
-
   try {
     state = JSON.parse(localStorage.getItem(rotationKey) || "null");
   } catch (_) {
     state = null;
   }
-
   if (!state || !Array.isArray(state.visited) || Date.now() - Number(state.time) >= roundSeconds * 1000) {
     state = { visited: [], time: Date.now() };
   }
@@ -101,13 +94,11 @@
   var candidates = ads.filter(function (ad) {
     return state.visited.indexOf(ad.id) < 0;
   });
-
   if (!candidates.length) {
     state = { visited: [], time: Date.now() };
     candidates = ads.slice();
   }
 
-  /* Weighted order without replacement preserves configured traffic shares. */
   var ordered = [];
   while (candidates.length) {
     var next = weightedPick(candidates);
@@ -115,15 +106,15 @@
     ordered.push(next);
     candidates.splice(candidates.indexOf(next), 1);
   }
-
   if (!ordered.length) return;
 
   scheduleHistats();
-
   var startedAt = Date.now();
   var attempts = [];
   var index = 0;
   var completed = false;
+  var loadedElement = null;
+  var visibilityTimer = null;
 
   function persistRotation(ad) {
     if (state.visited.indexOf(ad.id) < 0) state.visited.push(ad.id);
@@ -135,7 +126,8 @@
   function finish(status, ad) {
     if (completed) return;
     completed = true;
-    recordResult({
+    if (visibilityTimer) window.clearTimeout(visibilityTimer);
+    var result = {
       status: status,
       adId: ad ? ad.id : null,
       attempts: attempts,
@@ -145,7 +137,8 @@
       host: location.hostname || "",
       userAgent: navigator.userAgent || "",
       network: getNetworkInfo()
-    });
+    };
+    recordResult(result);
   }
 
   function loadNext() {
@@ -157,40 +150,40 @@
 
     var ad = ordered[index++];
     persistRotation(ad);
-    var attempt = {
-      id: ad.id,
-      status: "loading",
-      startedAt: Date.now()
-    };
+    var attempt = { id: ad.id, status: "loading", startedAt: Date.now() };
     attempts.push(attempt);
 
     var script = document.createElement("script");
     var settled = false;
     var timer = window.setTimeout(function () {
-      settle(false, "timeout");
+      settle("timeout");
     }, REQUEST_TIMEOUT_MS);
 
-    function settle(success, status) {
+    function settle(status) {
       if (settled || completed) return;
       settled = true;
       window.clearTimeout(timer);
       attempt.status = status;
       attempt.durationMs = Date.now() - attempt.startedAt;
 
-      if (success) {
-        finish("loaded", ad);
+      if (status === "loaded") {
+        loadedElement = script;
+        // A short observation window lets synchronous provider errors surface.
+        // It does not claim that a creative was rendered or viewable.
+        visibilityTimer = window.setTimeout(function () {
+          finish("loaded", ad);
+        }, 500);
         return;
       }
 
       if (status === "error") {
-        // A definitive load error (network/CSP) is safe to fall back from.
         if (script.parentNode) script.parentNode.removeChild(script);
         loadNext();
         return;
       }
 
-      // Timeout is ambiguous: the browser may still execute the request late.
-      // Do not start another provider, which could create duplicate ad displays.
+      // Timeout result is ambiguous. Removing a script cannot guarantee it
+      // won't execute late, so don't inject another provider into this page.
       finish("timeout", ad);
     }
 
@@ -198,10 +191,20 @@
     script.async = true;
     script.type = "text/javascript";
     script.setAttribute("data-ggads-id", ad.id);
-    script.onload = function () { settle(true, "loaded"); };
-    script.onerror = function () { settle(false, "error"); };
+    script.onload = function () { settle("loaded"); };
+    script.onerror = function () { settle("error"); };
     (document.head || document.documentElement).appendChild(script);
   }
+
+  // Capture immediate provider runtime errors for diagnostics, without
+  // intercepting or suppressing the browser's normal error reporting.
+  window.addEventListener("error", function (event) {
+    if (completed || !loadedElement || !event.filename) return;
+    if (event.filename.indexOf(loadedElement.src) === 0) {
+      var latest = attempts[attempts.length - 1];
+      if (latest) latest.runtimeError = String(event.message || "script error").slice(0, 180);
+    }
+  });
 
   loadNext();
 })();
