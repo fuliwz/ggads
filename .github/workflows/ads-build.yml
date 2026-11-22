@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - fix/ad-fill-reliability-2026-11
+      - feat/visible-ad-slots-early-loader
   pull_request:
     branches:
       - main
@@ -23,6 +23,7 @@ jobs:
         run: |
           test -s dist/dh.js
           node --check dist/dh.js
-          grep -q 'requestTimeoutMs' config/ads.json
-          grep -q 'fyb.pages.dev/gg.js' dist/dh.js
-          grep -q 'fyb.pages.dev/td.js' dist/dh.js
+          grep -q 'data-ggads-slot' dist/dh.js
+          grep -q 'ggads:status' dist/dh.js
+          ! grep -q 'fyb.pages.dev/gg.js' dist/dh.js
+          ! grep -q 'fyb.pages.dev/td.js' dist/dh.js
