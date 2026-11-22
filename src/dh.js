@@ -10,7 +10,8 @@
 
   /*__GGADS_CONFIG__*/
 
-  var REQUEST_TIMEOUT_MS = 3000;
+  var REQUEST_TIMEOUT_MS = Math.max(4000, Number(STATIC_CONFIG.requestTimeoutMs) || 8000);
+  var MAX_FALLBACKS = Math.max(0, Number(STATIC_CONFIG.maxFallbacks) || 1);
 
   function weightedPick(items) {
     var total = 0;
@@ -63,6 +64,17 @@
     } catch (_) {}
   }
 
+  function getNetworkInfo() {
+    var connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (!connection) return {};
+    return {
+      effectiveType: connection.effectiveType || null,
+      downlink: typeof connection.downlink === "number" ? connection.downlink : null,
+      rtt: typeof connection.rtt === "number" ? connection.rtt : null,
+      saveData: !!connection.saveData
+    };
+  }
+
   var config = typeof STATIC_CONFIG === "object" ? STATIC_CONFIG : null;
   if (!config || !Array.isArray(config.ads)) return;
 
@@ -95,8 +107,7 @@
     candidates = ads.slice();
   }
 
-  /* Weighted ordering without replacement: the first ad keeps the existing
-     weighted selection behavior, while failures can fall back to other ads. */
+  /* Weighted order without replacement preserves configured traffic shares. */
   var ordered = [];
   while (candidates.length) {
     var next = weightedPick(candidates);
@@ -112,6 +123,7 @@
   var startedAt = Date.now();
   var attempts = [];
   var index = 0;
+  var completed = false;
 
   function persistRotation(ad) {
     if (state.visited.indexOf(ad.id) < 0) state.visited.push(ad.id);
@@ -121,24 +133,36 @@
   }
 
   function finish(status, ad) {
+    if (completed) return;
+    completed = true;
     recordResult({
       status: status,
       adId: ad ? ad.id : null,
       attempts: attempts,
       durationMs: Date.now() - startedAt,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      page: location.pathname || "/",
+      host: location.hostname || "",
+      userAgent: navigator.userAgent || "",
+      network: getNetworkInfo()
     });
   }
 
   function loadNext() {
-    if (index >= ordered.length) {
+    if (completed) return;
+    if (index >= ordered.length || attempts.length > MAX_FALLBACKS) {
       finish("failed", null);
       return;
     }
 
     var ad = ordered[index++];
     persistRotation(ad);
-    attempts.push({ id: ad.id, status: "loading" });
+    var attempt = {
+      id: ad.id,
+      status: "loading",
+      startedAt: Date.now()
+    };
+    attempts.push(attempt);
 
     var script = document.createElement("script");
     var settled = false;
@@ -147,28 +171,27 @@
     }, REQUEST_TIMEOUT_MS);
 
     function settle(success, status) {
-      if (settled) return;
+      if (settled || completed) return;
       settled = true;
       window.clearTimeout(timer);
-
-      var attempt = attempts[attempts.length - 1];
-      if (attempt && attempt.id === ad.id) attempt.status = status;
+      attempt.status = status;
+      attempt.durationMs = Date.now() - attempt.startedAt;
 
       if (success) {
         finish("loaded", ad);
-      } else {
-        if (script.parentNode) script.parentNode.removeChild(script);
-
-        // A timed-out request may still finish executing later.
-        // Never inject a second provider after timeout, or both ads may render.
-        if (status === "timeout") {
-          finish("timeout", ad);
-          return;
-        }
-
-        // A hard network/CSP error did not load the script, so fallback is safe.
-        loadNext();
+        return;
       }
+
+      if (status === "error") {
+        // A definitive load error (network/CSP) is safe to fall back from.
+        if (script.parentNode) script.parentNode.removeChild(script);
+        loadNext();
+        return;
+      }
+
+      // Timeout is ambiguous: the browser may still execute the request late.
+      // Do not start another provider, which could create duplicate ad displays.
+      finish("timeout", ad);
     }
 
     script.src = ad.url;
