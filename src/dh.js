@@ -1,4 +1,4 @@
-/* GGADS visible-slot loader. Configuration is embedded at build time. */
+/* GGADS early script-provider loader. Configuration is embedded at build time. */
 (function () {
   "use strict";
 
@@ -8,35 +8,37 @@
   /*__GGADS_CONFIG__*/
 
   var config = STATIC_CONFIG;
-  var version = Number(config.version) || 5;
-  var timeoutMs = Math.max(2500, Number(config.requestTimeoutMs) || 6000);
-  var maxFallbacks = Math.max(0, Number(config.maxFallbacks) || 1);
   var startedAt = Date.now();
-  var slotStates = {};
-  var observer = null;
+  var timeoutMs = Math.max(3000, Number(config.requestTimeoutMs) || 8000);
+  var maxFallbacks = Math.max(0, Math.min(1, Number(config.maxFallbacks) || 1));
+  var attempts = [];
+  var completed = false;
+  var loadedScript = null;
 
-  function isMobile() {
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || "");
-  }
-
-  if (config.mobileOnly && !isMobile()) return;
-
-  function safeStore(key, value) {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
-  }
-
-  function readStore(key) {
+  function safeGet(key) {
     try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (_) { return null; }
   }
 
-  function recordResult(result) {
-    result.timestamp = Date.now();
-    result.page = location.pathname || "/";
-    result.host = location.hostname || "";
-    result.userAgent = navigator.userAgent || "";
-    result.durationMs = Date.now() - startedAt;
+  function safeSet(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
+  }
+
+  function record(status, ad) {
+    if (completed) return;
+    completed = true;
+    var result = {
+      status: status,
+      adId: ad ? ad.id : null,
+      attempts: attempts,
+      durationMs: Date.now() - startedAt,
+      timestamp: Date.now(),
+      page: location.pathname || "/",
+      host: location.hostname || "",
+      userAgent: navigator.userAgent || "",
+      network: getNetworkInfo()
+    };
     window.__ggads_last_result = result;
-    safeStore("__ggads_last_result_v2", result);
+    safeSet("__ggads_last_result_v3", result);
     try {
       if (typeof window.CustomEvent === "function") {
         window.dispatchEvent(new CustomEvent("ggads:result", { detail: result }));
@@ -55,42 +57,33 @@
     };
   }
 
-  function hostAllowed(host) {
-    var allowed = Array.isArray(config.allowedFrameHosts) ? config.allowedFrameHosts : [];
-    for (var i = 0; i < allowed.length; i++) {
-      var entry = String(allowed[i] || "").toLowerCase();
-      if (entry && (host === entry || host.slice(-(entry.length + 1)) === "." + entry)) return true;
-    }
-    return false;
+  function isMobile() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || "");
   }
 
-  function safeFrameUrl(provider) {
-    if (!provider || typeof provider.frameUrl !== "string" || !provider.frameUrl) return null;
-    try {
-      var url = new URL(provider.frameUrl);
-      if (url.protocol !== "https:" || !hostAllowed(url.hostname.toLowerCase())) return null;
-      return url;
-    } catch (_) {
-      return null;
-    }
-  }
+  if (config.mobileOnly && !isMobile()) return;
 
-  function addPreconnects(providers) {
+  function addConnectionHints() {
+    var origins = Array.isArray(config.preconnect) ? config.preconnect : [];
     if (!document.head) return;
     var seen = {};
-    providers.forEach(function (provider) {
-      var url = safeFrameUrl(provider);
-      if (!url || seen[url.origin]) return;
-      seen[url.origin] = true;
-      var dns = document.createElement("link");
-      dns.rel = "dns-prefetch";
-      dns.href = "//" + url.host;
-      document.head.appendChild(dns);
-      var preconnect = document.createElement("link");
-      preconnect.rel = "preconnect";
-      preconnect.href = url.origin;
-      preconnect.crossOrigin = "anonymous";
-      document.head.appendChild(preconnect);
+    origins.forEach(function (origin) {
+      try {
+        var url = new URL(origin);
+        if (url.protocol !== "https:" || seen[url.origin]) return;
+        seen[url.origin] = true;
+
+        var dns = document.createElement("link");
+        dns.rel = "dns-prefetch";
+        dns.href = "//" + url.host;
+        document.head.appendChild(dns);
+
+        var link = document.createElement("link");
+        link.rel = "preconnect";
+        link.href = url.origin;
+        link.crossOrigin = "anonymous";
+        document.head.appendChild(link);
+      } catch (_) {}
     });
   }
 
@@ -104,10 +97,10 @@
       h.push(["Histats.start", "1,4757866,4,0,0,0,00010000"]);
       h.push(["Histats.fasi", "1"]);
       h.push(["Histats.track_hits", ""]);
-      var script = document.createElement("script");
-      script.async = true;
-      script.src = "https://s10.histats.com/js15_as.js";
-      (document.head || document.documentElement).appendChild(script);
+      var s = document.createElement("script");
+      s.async = true;
+      s.src = "https://s10.histats.com/js15_as.js";
+      (document.head || document.documentElement).appendChild(s);
     };
     if (typeof window.requestIdleCallback === "function") {
       window.requestIdleCallback(run, { timeout: 2500 });
@@ -118,308 +111,125 @@
 
   function weightedOrder(items) {
     var pool = items.slice();
-    var ordered = [];
+    var result = [];
     while (pool.length) {
       var total = 0;
       for (var i = 0; i < pool.length; i++) total += Math.max(0, Number(pool[i].weight) || 0);
-      var picked;
+      var selected;
       if (total <= 0) {
-        picked = pool[Math.floor(Math.random() * pool.length)];
+        selected = pool[Math.floor(Math.random() * pool.length)];
       } else {
         var random = Math.random() * total;
         for (var j = 0; j < pool.length; j++) {
           random -= Math.max(0, Number(pool[j].weight) || 0);
-          if (random < 0) { picked = pool[j]; break; }
+          if (random < 0) { selected = pool[j]; break; }
         }
-        if (!picked) picked = pool[pool.length - 1];
+        if (!selected) selected = pool[pool.length - 1];
       }
-      ordered.push(picked);
-      pool.splice(pool.indexOf(picked), 1);
+      result.push(selected);
+      pool.splice(pool.indexOf(selected), 1);
     }
-    return ordered;
+    return result;
   }
 
-  function providerOrder(slotId) {
-    var providers = (config.ads || []).filter(function (provider) {
-      return provider &&
-        provider.enabled === true &&
-        provider.placement === slotId &&
-        safeFrameUrl(provider);
+  function getProviderOrder() {
+    var ads = (config.ads || []).filter(function (ad) {
+      return ad && ad.enabled !== false && typeof ad.url === "string" && ad.url;
     });
-    if (!providers.length) return [];
+    if (!ads.length) return [];
 
-    var rotationKey = "__ggads_rotation_v" + version + "_" + slotId;
-    var rotation = readStore(rotationKey);
+    var key = "__ggads_rotation_v" + (Number(config.version) || 1);
+    var state = safeGet(key);
     var roundSeconds = Math.max(1, Number(config.roundSeconds) || 60);
-    if (!rotation || !Array.isArray(rotation.visited) ||
-        Date.now() - Number(rotation.time) >= roundSeconds * 1000) {
-      rotation = { visited: [], time: Date.now() };
+    if (!state || !Array.isArray(state.visited) ||
+        Date.now() - Number(state.time) >= roundSeconds * 1000) {
+      state = { visited: [], time: Date.now() };
     }
 
-    var candidates = providers.filter(function (provider) {
-      return rotation.visited.indexOf(provider.id) < 0;
+    var remaining = ads.filter(function (ad) {
+      return state.visited.indexOf(ad.id) < 0;
     });
-    if (!candidates.length) {
-      rotation = { visited: [], time: Date.now() };
-      candidates = providers.slice();
+    if (!remaining.length) {
+      state = { visited: [], time: Date.now() };
+      remaining = ads.slice();
     }
 
-    var ordered = weightedOrder(candidates);
+    var ordered = weightedOrder(remaining);
     if (ordered.length) {
-      rotation.visited.push(ordered[0].id);
-      safeStore(rotationKey, rotation);
+      state.visited.push(ordered[0].id);
+      safeSet(key, state);
     }
     return ordered;
   }
 
-  function setSlotStyle(slot, slotConfig) {
-    slot.style.display = "block";
-    slot.style.position = "relative";
-    slot.style.width = "100%";
-    slot.style.maxWidth = Math.max(1, Number(slotConfig.maxWidth) || 970) + "px";
-    slot.style.minHeight = Math.max(1, Number(slotConfig.height) || 250) + "px";
-    slot.style.margin = slotConfig.margin || "12px auto";
-    slot.style.overflow = "hidden";
-    slot.style.contain = "layout paint";
-    slot.setAttribute("aria-label", slotConfig.label || "广告");
-  }
-
-  function markViewable(slotId, providerId, attempt) {
-    if (typeof window.IntersectionObserver !== "function") return;
-    var frame = attempt.frame;
-    var viewTimer = null;
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
-          if (!viewTimer) {
-            viewTimer = window.setTimeout(function () {
-              attempt.viewableCandidate = true;
-              attempt.viewableCandidateAt = Date.now();
-              recordResult({
-                status: "viewable_candidate",
-                slotId: slotId,
-                adId: providerId,
-                attempts: slotStates[slotId] ? slotStates[slotId].attempts : [],
-                network: getNetworkInfo()
-              });
-              io.disconnect();
-            }, 1000);
-          }
-        } else if (viewTimer) {
-          window.clearTimeout(viewTimer);
-          viewTimer = null;
-        }
-      });
-    }, { threshold: [0, 0.5, 1] });
-    io.observe(frame);
-    attempt.observer = io;
-  }
-
-  function makeFrame(provider, slotConfig, onResult) {
-    var frame = document.createElement("iframe");
-    frame.title = provider.name ? provider.name + " 广告" : "广告";
-    frame.src = safeFrameUrl(provider).href;
-    frame.loading = "eager";
-    frame.referrerPolicy = "strict-origin-when-cross-origin";
-    frame.setAttribute("sandbox", "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox");
-    frame.setAttribute("allow", "fullscreen");
-    frame.setAttribute("scrolling", "no");
-    frame.style.display = "block";
-    frame.style.width = "100%";
-    frame.style.height = Math.max(1, Number(slotConfig.height) || 250) + "px";
-    frame.style.border = "0";
-    frame.style.margin = "0";
-    frame.style.padding = "0";
-    frame.style.background = "transparent";
-    frame.setAttribute("data-ggads-provider", provider.id);
-    frame.addEventListener("load", function () {
-      onResult("frame_loaded");
-    });
-    frame.addEventListener("error", function () {
-      onResult("error");
-    });
-    return frame;
-  }
-
-  function renderSlot(slot, slotConfig) {
-    var slotId = slotConfig.id;
-    if (slot.getAttribute("data-ggads-initialized") === "1") return;
-    slot.setAttribute("data-ggads-initialized", "1");
-
-    var providers = providerOrder(slotId);
-    if (!providers.length) {
-      slot.style.display = "none";
-      recordResult({
-        status: "no_provider_configured",
-        slotId: slotId,
-        attempts: [],
-        network: getNetworkInfo()
-      });
+  function loadNext(order, index) {
+    if (completed) return;
+    if (index >= order.length || attempts.length > maxFallbacks) {
+      record("failed", null);
       return;
     }
 
-    setSlotStyle(slot, slotConfig);
-    var state = slotStates[slotId] = {
-      attempts: [],
-      completed: false,
-      index: 0,
-      currentFrameWindow: null
+    var ad = order[index];
+    var attempt = {
+      id: ad.id,
+      status: "loading",
+      startedAt: Date.now()
     };
-    var label = document.createElement("span");
-    label.textContent = slotConfig.label || "广告";
-    label.style.cssText = "position:absolute;top:2px;left:4px;z-index:1;font:10px/1.4 sans-serif;color:#777;background:rgba(255,255,255,.8);padding:1px 4px;pointer-events:none;";
-    slot.appendChild(label);
+    attempts.push(attempt);
 
-    function finish(status, provider) {
-      if (state.completed) return;
-      state.completed = true;
-      window.removeEventListener("message", onProviderMessage);
-      recordResult({
-        status: status,
-        slotId: slotId,
-        adId: provider ? provider.id : null,
-        attempts: state.attempts,
-        network: getNetworkInfo()
-      });
-    }
+    var script = document.createElement("script");
+    var settled = false;
+    var timer = window.setTimeout(function () {
+      if (settled || completed) return;
+      settled = true;
+      attempt.status = "timeout";
+      attempt.durationMs = Date.now() - attempt.startedAt;
 
-    function onProviderMessage(event) {
-      if (event.source !== state.currentFrameWindow || !event.data ||
-          event.data.type !== "ggads:status") return;
-      var attempt = state.attempts[state.attempts.length - 1];
-      var provider = providers[state.index - 1];
-      if (!attempt || !provider || state.completed) return;
+      // A timeout is ambiguous: the response may still execute later.
+      // Never inject a second provider after an ambiguous timeout.
+      record("timeout", ad);
+    }, timeoutMs);
 
-      if (event.data.status === "filled") {
-        attempt.providerStatus = "filled";
-        attempt.status = "filled";
-        attempt.durationMs = Date.now() - attempt.startedAt;
-        finish("filled", provider);
-      } else if (event.data.status === "empty" || event.data.status === "error") {
-        attempt.providerStatus = event.data.status;
-        attempt.status = event.data.status;
-        attempt.durationMs = Date.now() - attempt.startedAt;
-        if (attempt.observer) attempt.observer.disconnect();
-        if (attempt.timer) window.clearTimeout(attempt.timer);
-        if (attempt.frame && attempt.frame.parentNode) attempt.frame.parentNode.removeChild(attempt.frame);
-        loadNext();
-      }
-    }
+    function settle(status) {
+      if (settled || completed) return;
+      settled = true;
+      window.clearTimeout(timer);
+      attempt.status = status;
+      attempt.durationMs = Date.now() - attempt.startedAt;
 
-    function loadNext() {
-      if (state.completed) return;
-      if (state.index >= providers.length || state.attempts.length > maxFallbacks) {
-        finish("no_fill", null);
+      if (status === "loaded") {
+        loadedScript = script;
+        // onload confirms the JS resource arrived, not that a creative rendered.
+        record("script_loaded_unconfirmed", ad);
         return;
       }
 
-      var provider = providers[state.index++];
-      var attempt = {
-        id: provider.id,
-        status: "loading",
-        startedAt: Date.now(),
-        frame: null
-      };
-      state.attempts.push(attempt);
-
-      var frame = makeFrame(provider, slotConfig, function (status) {
-        if (state.completed) return;
-        if (status === "frame_loaded") {
-          if (attempt.status !== "loading") return;
-          attempt.status = "frame_loaded_unconfirmed";
-          attempt.durationMs = Date.now() - attempt.startedAt;
-          if (attempt.timer) window.clearTimeout(attempt.timer);
-          markViewable(slotId, provider.id, attempt);
-          // Keep listening for a provider's explicit filled/empty postMessage.
-          // A load event alone is not proof of an actual ad impression.
-          recordResult({
-            status: "frame_loaded_unconfirmed",
-            slotId: slotId,
-            adId: provider.id,
-            attempts: state.attempts,
-            network: getNetworkInfo()
-          });
-          return;
-        }
-        if (status === "error" && attempt.status === "loading") {
-          attempt.status = "error";
-          attempt.durationMs = Date.now() - attempt.startedAt;
-          if (attempt.observer) attempt.observer.disconnect();
-          if (attempt.frame && attempt.frame.parentNode) attempt.frame.parentNode.removeChild(attempt.frame);
-          if (attempt.timer) window.clearTimeout(attempt.timer);
-          loadNext();
-        }
-      });
-
-      attempt.frame = frame;
-      state.currentFrameWindow = frame.contentWindow;
-      slot.insertBefore(frame, label);
-      attempt.timer = window.setTimeout(function () {
-        if (state.completed || attempt.status !== "loading") return;
-        attempt.status = "timeout";
-        attempt.durationMs = Date.now() - attempt.startedAt;
-        if (attempt.observer) attempt.observer.disconnect();
-        if (frame.parentNode) frame.parentNode.removeChild(frame);
-        // Remove the sandboxed timed-out frame before trying a fallback.
-        loadNext();
-      }, timeoutMs);
+      if (script.parentNode) script.parentNode.removeChild(script);
+      loadNext(order, index + 1);
     }
 
-    window.addEventListener("message", onProviderMessage);
-    loadNext();
+    script.src = ad.url;
+    script.async = true;
+    script.type = "text/javascript";
+    script.fetchPriority = "high";
+    script.setAttribute("data-ggads-provider", ad.id);
+    script.onload = function () { settle("loaded"); };
+    script.onerror = function () { settle("error"); };
+    (document.head || document.documentElement).appendChild(script);
   }
 
-  function scan(root) {
-    if (!root || !root.querySelectorAll) return;
-    var slots = root.querySelectorAll("[data-ggads-slot]");
-    for (var i = 0; i < slots.length; i++) {
-      var slot = slots[i];
-      var slotId = slot.getAttribute("data-ggads-slot");
-      for (var j = 0; j < (config.slots || []).length; j++) {
-        if (config.slots[j].id === slotId && config.slots[j].enabled !== false) {
-          renderSlot(slot, config.slots[j]);
-          break;
-        }
-      }
+  window.addEventListener("error", function (event) {
+    if (completed || !loadedScript || !event.filename) return;
+    if (event.filename.indexOf(loadedScript.src) === 0) {
+      var latest = attempts[attempts.length - 1];
+      if (latest) latest.runtimeError = String(event.message || "script error").slice(0, 180);
     }
-  }
-
-  var activeProviders = (config.ads || []).filter(function (provider) {
-    return provider && provider.enabled === true && safeFrameUrl(provider);
   });
-  addPreconnects(activeProviders);
 
-  function start() {
-    if (!document.documentElement) {
-      window.setTimeout(start, 0);
-      return;
-    }
-    scan(document.documentElement);
-    if (typeof MutationObserver === "function" && !observer) {
-      observer = new MutationObserver(function (mutations) {
-        mutations.forEach(function (mutation) {
-          for (var i = 0; i < mutation.addedNodes.length; i++) {
-            var node = mutation.addedNodes[i];
-            if (node.nodeType === 1) {
-              if (node.matches && node.matches("[data-ggads-slot]")) scan(node.parentNode || document.documentElement);
-              else scan(node);
-            }
-          }
-        });
-      });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
-    }
-  }
-
-  if (document.readyState === "loading") {
-    if (typeof MutationObserver === "function" && document.documentElement) {
-      observer = new MutationObserver(function () { scan(document.documentElement); });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
-    }
-    document.addEventListener("DOMContentLoaded", start, { once: true });
-  } else {
-    start();
-  }
-
+  addConnectionHints();
   scheduleHistats();
+
+  var order = getProviderOrder();
+  if (order.length) loadNext(order, 0);
+  else record("no_provider", null);
 })();
