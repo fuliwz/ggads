@@ -259,16 +259,21 @@
     }
 
     setSlotStyle(slot, slotConfig);
-    var state = slotStates[slotId] = { attempts: [], completed: false, index: 0 };
+    var state = slotStates[slotId] = {
+      attempts: [],
+      completed: false,
+      index: 0,
+      currentFrameWindow: null
+    };
     var label = document.createElement("span");
     label.textContent = slotConfig.label || "广告";
     label.style.cssText = "position:absolute;top:2px;left:4px;z-index:1;font:10px/1.4 sans-serif;color:#777;background:rgba(255,255,255,.8);padding:1px 4px;pointer-events:none;";
     slot.appendChild(label);
 
-    function finish(status, provider, attempt) {
+    function finish(status, provider) {
       if (state.completed) return;
       state.completed = true;
-      if (attempt && attempt.timer) window.clearTimeout(attempt.timer);
+      window.removeEventListener("message", onProviderMessage);
       recordResult({
         status: status,
         slotId: slotId,
@@ -278,10 +283,33 @@
       });
     }
 
+    function onProviderMessage(event) {
+      if (event.source !== state.currentFrameWindow || !event.data ||
+          event.data.type !== "ggads:status") return;
+      var attempt = state.attempts[state.attempts.length - 1];
+      var provider = providers[state.index - 1];
+      if (!attempt || !provider || state.completed) return;
+
+      if (event.data.status === "filled") {
+        attempt.providerStatus = "filled";
+        attempt.status = "filled";
+        attempt.durationMs = Date.now() - attempt.startedAt;
+        finish("filled", provider);
+      } else if (event.data.status === "empty" || event.data.status === "error") {
+        attempt.providerStatus = event.data.status;
+        attempt.status = event.data.status;
+        attempt.durationMs = Date.now() - attempt.startedAt;
+        if (attempt.observer) attempt.observer.disconnect();
+        if (attempt.timer) window.clearTimeout(attempt.timer);
+        if (attempt.frame && attempt.frame.parentNode) attempt.frame.parentNode.removeChild(attempt.frame);
+        loadNext();
+      }
+    }
+
     function loadNext() {
       if (state.completed) return;
       if (state.index >= providers.length || state.attempts.length > maxFallbacks) {
-        finish("no_fill", null, null);
+        finish("no_fill", null);
         return;
       }
 
@@ -295,26 +323,36 @@
       state.attempts.push(attempt);
 
       var frame = makeFrame(provider, slotConfig, function (status) {
+        if (state.completed) return;
         if (status === "frame_loaded") {
           if (attempt.status !== "loading") return;
           attempt.status = "frame_loaded_unconfirmed";
           attempt.durationMs = Date.now() - attempt.startedAt;
-          markViewable(slotId, provider.id, attempt);
           if (attempt.timer) window.clearTimeout(attempt.timer);
-          attempt.timer = window.setTimeout(function () {
-            finish("frame_loaded_unconfirmed", provider, attempt);
-          }, Math.max(500, Number(config.statusGraceMs) || 1500));
+          markViewable(slotId, provider.id, attempt);
+          // Keep listening for a provider's explicit filled/empty postMessage.
+          // A load event alone is not proof of an actual ad impression.
+          recordResult({
+            status: "frame_loaded_unconfirmed",
+            slotId: slotId,
+            adId: provider.id,
+            attempts: state.attempts,
+            network: getNetworkInfo()
+          });
           return;
         }
         if (status === "error" && attempt.status === "loading") {
           attempt.status = "error";
           attempt.durationMs = Date.now() - attempt.startedAt;
           if (attempt.observer) attempt.observer.disconnect();
-          if (frame.parentNode) frame.parentNode.removeChild(frame);
+          if (attempt.frame && attempt.frame.parentNode) attempt.frame.parentNode.removeChild(attempt.frame);
+          if (attempt.timer) window.clearTimeout(attempt.timer);
           loadNext();
         }
       });
+
       attempt.frame = frame;
+      state.currentFrameWindow = frame.contentWindow;
       slot.insertBefore(frame, label);
       attempt.timer = window.setTimeout(function () {
         if (state.completed || attempt.status !== "loading") return;
@@ -322,48 +360,12 @@
         attempt.durationMs = Date.now() - attempt.startedAt;
         if (attempt.observer) attempt.observer.disconnect();
         if (frame.parentNode) frame.parentNode.removeChild(frame);
-        // A timed-out frame is removed and sandboxed before trying a backup.
+        // Remove the sandboxed timed-out frame before trying a fallback.
         loadNext();
       }, timeoutMs);
     }
 
-    function onProviderMessage(event) {
-      if (event.source !== state.currentFrameWindow || !event.data ||
-          event.data.type !== "ggads:status") return;
-      var attempt = state.attempts[state.attempts.length - 1];
-      var provider = providers[state.index - 1];
-      if (!attempt || !provider || state.completed) return;
-      if (event.data.status === "filled") {
-        attempt.providerStatus = "filled";
-        finish("filled", provider, attempt);
-      } else if (event.data.status === "empty" || event.data.status === "error") {
-        attempt.providerStatus = event.data.status;
-        if (attempt.observer) attempt.observer.disconnect();
-        if (attempt.frame && attempt.frame.parentNode) attempt.frame.parentNode.removeChild(attempt.frame);
-        if (attempt.timer) window.clearTimeout(attempt.timer);
-        loadNext();
-      }
-    }
-
-    // Each slot accepts status messages only from its currently embedded frame.
-    state.insertListener = onProviderMessage;
     window.addEventListener("message", onProviderMessage);
-
-    var oldLoadNext = loadNext;
-    loadNext = function () {
-      if (state.completed) return;
-      if (state.index >= providers.length || state.attempts.length > maxFallbacks) {
-        window.removeEventListener("message", onProviderMessage);
-        finish("no_fill", null, null);
-        return;
-      }
-      var nextProvider = providers[state.index];
-      state.currentFrameWindow = null;
-      oldLoadNext();
-      var last = state.attempts[state.attempts.length - 1];
-      state.currentFrameWindow = last && last.frame ? last.frame.contentWindow : null;
-    };
-
     loadNext();
   }
 
