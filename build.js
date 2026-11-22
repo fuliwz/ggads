@@ -134,10 +134,10 @@ const embedded = source.replace(CONFIG_MARKER, `var STATIC_CONFIG = ${JSON.strin
   if (!result.code) fail('Terser returned empty output');
 
   fs.mkdirSync(distPath, { recursive: true });
-  fs.writeFileSync(path.join(distPath, 'dh.js'), `${result.code}\\n`);
+  fs.writeFileSync(path.join(distPath, 'dh.js'), `${result.code}\n`);
   fs.writeFileSync(
     path.join(distPath, 'index.html'),
-    '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>ggads</title></head><body><h1>ggads</h1></body></html>\\n'
+    '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>ggads</title></head><body><h1>ggads</h1></body></html>\n'
   );
 
   console.log(`[ggads build] generated dist/dh.js with ${config.ads.length} provider entries and ${config.slots.length} slots`);
