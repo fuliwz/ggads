@@ -17,7 +17,6 @@
     var total = 0;
     for (var i = 0; i < items.length; i++) total += Math.max(0, Number(items[i].weight) || 0);
     if (!total) return items[Math.floor(Math.random() * items.length)];
-
     var random = Math.random() * total;
     for (var j = 0; j < items.length; j++) {
       random -= Math.max(0, Number(items[j].weight) || 0);
@@ -41,22 +40,15 @@
       s.src = "https://s10.histats.com/js15_as.js";
       (document.head || document.documentElement).appendChild(s);
     };
-    if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(run, { timeout: 2000 });
-    } else {
-      window.setTimeout(run, 1000);
-    }
+    if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(run, { timeout: 2000 });
+    else window.setTimeout(run, 1000);
   }
 
   function recordResult(result) {
     window.__ggads_last_result = result;
+    try { localStorage.setItem("__ggads_last_result_v1", JSON.stringify(result)); } catch (_) {}
     try {
-      localStorage.setItem("__ggads_last_result_v1", JSON.stringify(result));
-    } catch (_) {}
-    try {
-      if (typeof window.CustomEvent === "function") {
-        window.dispatchEvent(new CustomEvent("ggads:result", { detail: result }));
-      }
+      if (typeof window.CustomEvent === "function") window.dispatchEvent(new CustomEvent("ggads:result", { detail: result }));
     } catch (_) {}
   }
 
@@ -73,32 +65,18 @@
 
   var config = typeof STATIC_CONFIG === "object" ? STATIC_CONFIG : null;
   if (!config || !Array.isArray(config.ads)) return;
-  var ads = config.ads.filter(function (ad) {
-    return ad && ad.enabled !== false && typeof ad.url === "string" && ad.url;
-  });
+  var ads = config.ads.filter(function (ad) { return ad && ad.enabled !== false && typeof ad.url === "string" && ad.url; });
   if (!ads.length) return;
 
   var version = Number(config.version) || 1;
   var roundSeconds = Math.max(1, Number(config.roundSeconds) || 60);
   var rotationKey = "__ggads_rotation_v" + version;
   var state;
-  try {
-    state = JSON.parse(localStorage.getItem(rotationKey) || "null");
-  } catch (_) {
-    state = null;
-  }
-  if (!state || !Array.isArray(state.visited) || Date.now() - Number(state.time) >= roundSeconds * 1000) {
-    state = { visited: [], time: Date.now() };
-  }
+  try { state = JSON.parse(localStorage.getItem(rotationKey) || "null"); } catch (_) { state = null; }
+  if (!state || !Array.isArray(state.visited) || Date.now() - Number(state.time) >= roundSeconds * 1000) state = { visited: [], time: Date.now() };
 
-  var candidates = ads.filter(function (ad) {
-    return state.visited.indexOf(ad.id) < 0;
-  });
-  if (!candidates.length) {
-    state = { visited: [], time: Date.now() };
-    candidates = ads.slice();
-  }
-
+  var candidates = ads.filter(function (ad) { return state.visited.indexOf(ad.id) < 0; });
+  if (!candidates.length) { state = { visited: [], time: Date.now() }; candidates = ads.slice(); }
   var ordered = [];
   while (candidates.length) {
     var next = weightedPick(candidates);
@@ -118,16 +96,14 @@
 
   function persistRotation(ad) {
     if (state.visited.indexOf(ad.id) < 0) state.visited.push(ad.id);
-    try {
-      localStorage.setItem(rotationKey, JSON.stringify(state));
-    } catch (_) {}
+    try { localStorage.setItem(rotationKey, JSON.stringify(state)); } catch (_) {}
   }
 
   function finish(status, ad) {
     if (completed) return;
     completed = true;
     if (visibilityTimer) window.clearTimeout(visibilityTimer);
-    var result = {
+    recordResult({
       status: status,
       adId: ad ? ad.id : null,
       attempts: attempts,
@@ -137,27 +113,19 @@
       host: location.hostname || "",
       userAgent: navigator.userAgent || "",
       network: getNetworkInfo()
-    };
-    recordResult(result);
+    });
   }
 
   function loadNext() {
     if (completed) return;
-    if (index >= ordered.length || attempts.length > MAX_FALLBACKS) {
-      finish("failed", null);
-      return;
-    }
-
+    if (index >= ordered.length || attempts.length > MAX_FALLBACKS) { finish("failed", null); return; }
     var ad = ordered[index++];
     persistRotation(ad);
     var attempt = { id: ad.id, status: "loading", startedAt: Date.now() };
     attempts.push(attempt);
-
     var script = document.createElement("script");
     var settled = false;
-    var timer = window.setTimeout(function () {
-      settle("timeout");
-    }, REQUEST_TIMEOUT_MS);
+    var timer = window.setTimeout(function () { settle("timeout"); }, REQUEST_TIMEOUT_MS);
 
     function settle(status) {
       if (settled || completed) return;
@@ -165,25 +133,19 @@
       window.clearTimeout(timer);
       attempt.status = status;
       attempt.durationMs = Date.now() - attempt.startedAt;
-
       if (status === "loaded") {
         loadedElement = script;
-        // A short observation window lets synchronous provider errors surface.
-        // It does not claim that a creative was rendered or viewable.
-        visibilityTimer = window.setTimeout(function () {
-          finish("loaded", ad);
-        }, 500);
+        // A brief observation window captures immediate provider runtime errors.
+        // It is not a guarantee that a creative rendered or became viewable.
+        visibilityTimer = window.setTimeout(function () { finish("loaded", ad); }, 500);
         return;
       }
-
       if (status === "error") {
         if (script.parentNode) script.parentNode.removeChild(script);
         loadNext();
         return;
       }
-
-      // Timeout result is ambiguous. Removing a script cannot guarantee it
-      // won't execute late, so don't inject another provider into this page.
+      // A timed-out script may execute late; don't inject another provider.
       finish("timeout", ad);
     }
 
@@ -196,8 +158,6 @@
     (document.head || document.documentElement).appendChild(script);
   }
 
-  // Capture immediate provider runtime errors for diagnostics, without
-  // intercepting or suppressing the browser's normal error reporting.
   window.addEventListener("error", function (event) {
     if (completed || !loadedElement || !event.filename) return;
     if (event.filename.indexOf(loadedElement.src) === 0) {
