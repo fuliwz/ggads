@@ -56,6 +56,7 @@
         window.dispatchEvent(new CustomEvent("ggads:result", { detail: result }));
       }
     } catch (_) {}
+    scheduleHistats();
   }
   function scheduleHistats() {
     if (window.__ggads_histats_scheduled || window.__ggads_histats_loaded) return;
@@ -152,7 +153,6 @@
     (document.head || document.documentElement).appendChild(s);
   }
 
-  scheduleHistats();
-  if (!mobile()) return;
+  if (!mobile()) { scheduleHistats(); return; }
   loadNext(providerOrder(), 0);
 })();
