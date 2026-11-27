@@ -60,6 +60,7 @@
         window.dispatchEvent(new CustomEvent("ggads:result", { detail: result }));
       }
     } catch (_) {}
+    scheduleHistats();
   }
 
   function getNetworkInfo() {
@@ -221,8 +222,6 @@
       if (latest) latest.runtimeError = String(event.message || "script error").slice(0, 180);
     }
   });
-
-  scheduleHistats();
 
   var order = getProviderOrder();
   if (order.length) loadNext(order, 0);
