@@ -8,6 +8,23 @@
   /*__GGADS_CONFIG__*/
 
   var config = STATIC_CONFIG;
+
+  // Load the bundled ad scripts from this project's own dist directory.
+  // Keep the existing IDs and weights so the established random rotation
+  // and per-round visitation logic remains unchanged.
+  var localBase = (function () {
+    var current = document.currentScript;
+    if (current && current.src) return new URL(".", current.src).href;
+    return new URL("./", location.href).href;
+  })();
+
+  config = Object.assign({}, config, {
+    preconnect: [],
+    ads: [
+      { id: "gg", name: "shang", url: new URL("shang.js", localBase).href, weight: 50, enabled: true },
+      { id: "td", name: "xia", url: new URL("xia.js", localBase).href, weight: 50, enabled: true }
+    ]
+  });
   var startedAt = Date.now();
   var timeoutMs = Math.max(3000, Number(config.requestTimeoutMs) || 8000);
   var maxFallbacks = Math.max(0, Math.min(1, Number(config.maxFallbacks) || 1));
@@ -226,7 +243,6 @@
     }
   });
 
-  addConnectionHints();
   scheduleHistats();
 
   var order = getProviderOrder();
