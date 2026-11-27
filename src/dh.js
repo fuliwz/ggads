@@ -9,40 +9,13 @@
 
   var config = STATIC_CONFIG;
 
-  // Always serve the bundled scripts from the same deployment as dh.js.
+  // Resolve bundled ad scripts relative to the deployed dh.js URL.
+  // Keep provider IDs and weights stable for the existing rotation history.
   var scriptTag = document.currentScript;
-  var loaderUrl = scriptTag && scriptTag.src ? scriptTag.src : new URL("dh.js", location.href).href;
-  var localBase = new URL(".", loaderUrl).href;
-  config = Object.assign({}, config, {
-    preconnect: [],
-    ads: [
-      { id: "gg", name: "shang", url: new URL("shang.js", localBase).href, weight: 50, enabled: true },
-      { id: "td", name: "xia", url: new URL("xia.js", localBase).href, weight: 50, enabled: true }
-    ]
-  });
-
-  // Resolve bundled creatives relative to the deployed loader URL.
-  // "gg"/"td" IDs and weights stay stable to preserve rotation history.
-  var loaderUrl = document.currentScript && document.currentScript.src
-    ? document.currentScript.src
+  var loaderUrl = scriptTag && scriptTag.src
+    ? scriptTag.src
     : new URL("dh.js", location.href).href;
   var localBase = new URL(".", loaderUrl).href;
-  config = Object.assign({}, config, {
-    preconnect: [],
-    ads: [
-      { id: "gg", name: "shang", url: new URL("shang.js", localBase).href, weight: 50, enabled: true },
-      { id: "td", name: "xia", url: new URL("xia.js", localBase).href, weight: 50, enabled: true }
-    ]
-  });
-
-  // Load the bundled ad scripts from this project's own dist directory.
-  // Keep the existing IDs and weights so the established random rotation
-  // and per-round visitation logic remains unchanged.
-  var localBase = (function () {
-    var current = document.currentScript;
-    if (current && current.src) return new URL(".", current.src).href;
-    return new URL("./", location.href).href;
-  })();
 
   config = Object.assign({}, config, {
     preconnect: [],
@@ -108,30 +81,6 @@
   if (config.mobileOnly && !isMobile()) {
     scheduleHistats();
     return;
-  }
-
-  function addConnectionHints() {
-    var origins = Array.isArray(config.preconnect) ? config.preconnect : [];
-    if (!document.head) return;
-    var seen = {};
-    origins.forEach(function (origin) {
-      try {
-        var url = new URL(origin);
-        if (url.protocol !== "https:" || seen[url.origin]) return;
-        seen[url.origin] = true;
-
-        var dns = document.createElement("link");
-        dns.rel = "dns-prefetch";
-        dns.href = "//" + url.host;
-        document.head.appendChild(dns);
-
-        var link = document.createElement("link");
-        link.rel = "preconnect";
-        link.href = url.origin;
-        link.crossOrigin = "anonymous";
-        document.head.appendChild(link);
-      } catch (_) {}
-    });
   }
 
   function scheduleHistats() {
