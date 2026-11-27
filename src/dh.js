@@ -9,6 +9,18 @@
 
   var config = STATIC_CONFIG;
 
+  // Always serve the bundled scripts from the same deployment as dh.js.
+  var scriptTag = document.currentScript;
+  var loaderUrl = scriptTag && scriptTag.src ? scriptTag.src : new URL("dh.js", location.href).href;
+  var localBase = new URL(".", loaderUrl).href;
+  config = Object.assign({}, config, {
+    preconnect: [],
+    ads: [
+      { id: "gg", name: "shang", url: new URL("shang.js", localBase).href, weight: 50, enabled: true },
+      { id: "td", name: "xia", url: new URL("xia.js", localBase).href, weight: 50, enabled: true }
+    ]
+  });
+
   // Resolve bundled creatives relative to the deployed loader URL.
   // "gg"/"td" IDs and weights stay stable to preserve rotation history.
   var loaderUrl = document.currentScript && document.currentScript.src
