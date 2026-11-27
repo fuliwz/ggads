@@ -4,3 +4,9 @@
 
 /dh.js
   Cache-Control: public, max-age=600, must-revalidate
+
+/shang.js
+  Cache-Control: public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800
+
+/xia.js
+  Cache-Control: public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800
