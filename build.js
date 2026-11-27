@@ -39,9 +39,11 @@ config.ads.forEach((ad, index) => {
     fail(`invalid weight at ads[${index}]`);
   }
 });
-if (!ids.has('gg') || !ids.has('td')) fail('both gg.js and td.js providers are required');
-if (config.ads.find((ad) => ad.id === 'gg').url !== 'https://fyb.pages.dev/gg.js') fail('GG provider URL changed unexpectedly');
-if (config.ads.find((ad) => ad.id === 'td').url !== 'https://fyb.pages.dev/td.js') fail('TD provider URL changed unexpectedly');
+if (!ids.has('gg') || !ids.has('td')) fail('both local ad providers are required');
+if (config.ads.find((ad) => ad.id === 'gg').url !== 'https://local.invalid/shang.js') fail('shang.js local placeholder changed unexpectedly');
+if (config.ads.find((ad) => ad.id === 'td').url !== 'https://local.invalid/xia.js') fail('xia.js local placeholder changed unexpectedly');
+if (!fs.existsSync(path.join(distPath, 'shang.js'))) fail('missing dist/shang.js');
+if (!fs.existsSync(path.join(distPath, 'xia.js'))) fail('missing dist/xia.js');
 
 config.preconnect.forEach((origin, index) => {
   let url;
