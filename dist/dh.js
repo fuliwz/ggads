@@ -1,41 +1,53 @@
-/* GGADS early script-provider loader. Configuration is embedded at build time. */
+/* GGADS local ad loader. Generated bundle source: src/dh.js */
 (function () {
   "use strict";
-
   if (window.__ggads_loaded) return;
   window.__ggads_loaded = true;
 
-  var STATIC_CONFIG = {"version":6,"mobileOnly":true,"roundSeconds":60,"requestTimeoutMs":8000,"maxFallbacks":1,"preconnect":["https://fyb.pages.dev"],"ads":[{"id":"gg","name":"GG","url":"https://fyb.pages.dev/gg.js","weight":50,"enabled":true},{"id":"td","name":"TD","url":"https://fyb.pages.dev/td.js","weight":50,"enabled":true}]};
-
-  var config = STATIC_CONFIG;
   var startedAt = Date.now();
-  var timeoutMs = Math.max(3000, Number(config.requestTimeoutMs) || 8000);
-  var maxFallbacks = Math.max(0, Math.min(1, Number(config.maxFallbacks) || 1));
+  var timeoutMs = 8000;
   var attempts = [];
-  var completed = false;
-  var loadedScript = null;
+  var finished = false;
+  var scriptTag = document.currentScript;
+  var loaderUrl = scriptTag && scriptTag.src ? scriptTag.src : new URL("dh.js", location.href).href;
+  var base = new URL(".", loaderUrl).href;
+  var providers = [
+    { id: "gg", name: "shang", url: new URL("shang.js", base).href, weight: 50 },
+    { id: "td", name: "xia", url: new URL("xia.js", base).href, weight: 50 }
+  ];
 
-  function safeGet(key) {
-    try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (_) { return null; }
+  function mobile() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || "");
   }
-
   function safeSet(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
   }
-
-  function record(status, ad) {
-    if (completed) return;
-    completed = true;
+  function safeGet(key) {
+    try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (_) { return null; }
+  }
+  function networkInfo() {
+    var c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (!c) return {};
+    return {
+      effectiveType: c.effectiveType || null,
+      downlink: typeof c.downlink === "number" ? c.downlink : null,
+      rtt: typeof c.rtt === "number" ? c.rtt : null,
+      saveData: !!c.saveData
+    };
+  }
+  function record(status, provider) {
+    if (finished) return;
+    finished = true;
     var result = {
       status: status,
-      adId: ad ? ad.id : null,
+      adId: provider ? provider.id : null,
       attempts: attempts,
       durationMs: Date.now() - startedAt,
       timestamp: Date.now(),
       page: location.pathname || "/",
       host: location.hostname || "",
       userAgent: navigator.userAgent || "",
-      network: getNetworkInfo()
+      network: networkInfo()
     };
     window.__ggads_last_result = result;
     safeSet("__ggads_last_result_v3", result);
@@ -45,48 +57,6 @@
       }
     } catch (_) {}
   }
-
-  function getNetworkInfo() {
-    var connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    if (!connection) return {};
-    return {
-      effectiveType: connection.effectiveType || null,
-      downlink: typeof connection.downlink === "number" ? connection.downlink : null,
-      rtt: typeof connection.rtt === "number" ? connection.rtt : null,
-      saveData: !!connection.saveData
-    };
-  }
-
-  function isMobile() {
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || "");
-  }
-
-  if (config.mobileOnly && !isMobile()) return;
-
-  function addConnectionHints() {
-    var origins = Array.isArray(config.preconnect) ? config.preconnect : [];
-    if (!document.head) return;
-    var seen = {};
-    origins.forEach(function (origin) {
-      try {
-        var url = new URL(origin);
-        if (url.protocol !== "https:" || seen[url.origin]) return;
-        seen[url.origin] = true;
-
-        var dns = document.createElement("link");
-        dns.rel = "dns-prefetch";
-        dns.href = "//" + url.host;
-        document.head.appendChild(dns);
-
-        var link = document.createElement("link");
-        link.rel = "preconnect";
-        link.href = url.origin;
-        link.crossOrigin = "anonymous";
-        document.head.appendChild(link);
-      } catch (_) {}
-    });
-  }
-
   function scheduleHistats() {
     if (window.__ggads_histats_scheduled || window.__ggads_histats_loaded) return;
     window.__ggads_histats_scheduled = true;
@@ -108,128 +78,81 @@
       window.setTimeout(run, 1500);
     }
   }
-
   function weightedOrder(items) {
-    var pool = items.slice();
-    var result = [];
+    var pool = items.slice(), result = [];
     while (pool.length) {
-      var total = 0;
-      for (var i = 0; i < pool.length; i++) total += Math.max(0, Number(pool[i].weight) || 0);
-      var selected;
-      if (total <= 0) {
-        selected = pool[Math.floor(Math.random() * pool.length)];
-      } else {
-        var random = Math.random() * total;
-        for (var j = 0; j < pool.length; j++) {
-          random -= Math.max(0, Number(pool[j].weight) || 0);
-          if (random < 0) { selected = pool[j]; break; }
-        }
-        if (!selected) selected = pool[pool.length - 1];
+      var total = pool.reduce(function (sum, item) { return sum + item.weight; }, 0);
+      var n = Math.random() * total, selected = pool[pool.length - 1];
+      for (var i = 0; i < pool.length; i++) {
+        n -= pool[i].weight;
+        if (n < 0) { selected = pool[i]; break; }
       }
       result.push(selected);
       pool.splice(pool.indexOf(selected), 1);
     }
     return result;
   }
-
-  function getProviderOrder() {
-    var ads = (config.ads || []).filter(function (ad) {
-      return ad && ad.enabled !== false && typeof ad.url === "string" && ad.url;
-    });
-    if (!ads.length) return [];
-
-    var key = "__ggads_rotation_v" + (Number(config.version) || 1);
+  function providerOrder() {
+    var key = "__ggads_rotation_v7";
     var state = safeGet(key);
-    var roundSeconds = Math.max(1, Number(config.roundSeconds) || 60);
-    if (!state || !Array.isArray(state.visited) ||
-        Date.now() - Number(state.time) >= roundSeconds * 1000) {
+    if (!state || !Array.isArray(state.visited) || Date.now() - Number(state.time) >= 60000) {
       state = { visited: [], time: Date.now() };
     }
-
-    var remaining = ads.filter(function (ad) {
-      return state.visited.indexOf(ad.id) < 0;
-    });
+    var remaining = providers.filter(function (p) { return state.visited.indexOf(p.id) < 0; });
     if (!remaining.length) {
       state = { visited: [], time: Date.now() };
-      remaining = ads.slice();
+      remaining = providers.slice();
     }
-
-    var ordered = weightedOrder(remaining);
-    if (ordered.length) {
-      state.visited.push(ordered[0].id);
+    var order = weightedOrder(remaining);
+    if (order.length) {
+      state.visited.push(order[0].id);
       safeSet(key, state);
     }
-    return ordered;
+    return order;
   }
-
   function loadNext(order, index) {
-    if (completed) return;
-    if (index >= order.length || attempts.length > maxFallbacks) {
+    if (finished) return;
+    if (index >= order.length || attempts.length > 1) {
       record("failed", null);
       return;
     }
-
-    var ad = order[index];
-    var attempt = {
-      id: ad.id,
-      status: "loading",
-      startedAt: Date.now()
-    };
+    var provider = order[index];
+    var attempt = { id: provider.id, status: "loading", startedAt: Date.now() };
     attempts.push(attempt);
-
-    var script = document.createElement("script");
+    var s = document.createElement("script");
     var settled = false;
     var timer = window.setTimeout(function () {
-      if (settled || completed) return;
+      if (settled || finished) return;
       settled = true;
       attempt.status = "timeout";
       attempt.durationMs = Date.now() - attempt.startedAt;
-
-      // A timeout is ambiguous: the response may still execute later.
-      // Never inject a second provider after an ambiguous timeout.
-      record("timeout", ad);
+      // Timeout is ambiguous; do not start another provider script.
+      record("timeout", provider);
     }, timeoutMs);
-
     function settle(status) {
-      if (settled || completed) return;
+      if (settled || finished) return;
       settled = true;
       window.clearTimeout(timer);
       attempt.status = status;
       attempt.durationMs = Date.now() - attempt.startedAt;
-
       if (status === "loaded") {
-        loadedScript = script;
-        // onload confirms the JS resource arrived, not that a creative rendered.
-        record("script_loaded_unconfirmed", ad);
+        record("script_loaded_unconfirmed", provider);
         return;
       }
-
-      if (script.parentNode) script.parentNode.removeChild(script);
+      if (s.parentNode) s.parentNode.removeChild(s);
       loadNext(order, index + 1);
     }
-
-    script.src = ad.url;
-    script.async = true;
-    script.type = "text/javascript";
-    script.fetchPriority = "high";
-    script.setAttribute("data-ggads-provider", ad.id);
-    script.onload = function () { settle("loaded"); };
-    script.onerror = function () { settle("error"); };
-    (document.head || document.documentElement).appendChild(script);
+    s.src = provider.url;
+    s.async = true;
+    s.type = "text/javascript";
+    s.fetchPriority = "high";
+    s.setAttribute("data-ggads-provider", provider.id);
+    s.onload = function () { settle("loaded"); };
+    s.onerror = function () { settle("error"); };
+    (document.head || document.documentElement).appendChild(s);
   }
 
-  window.addEventListener("error", function (event) {
-    if (completed || !loadedScript || !event.filename) return;
-    if (event.filename.indexOf(loadedScript.src) === 0) {
-      var latest = attempts[attempts.length - 1];
-      if (latest) latest.runtimeError = String(event.message || "script error").slice(0, 180);
-    }
-  });
-
-  addConnectionHints();
   scheduleHistats();
-
-  var order = getProviderOrder();
-  if (order.length) loadNext(order, 0);
-  else record("no_provider", null);
+  if (!mobile()) return;
+  loadNext(providerOrder(), 0);
 })();
