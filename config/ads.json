@@ -1,24 +1,22 @@
 {
-  "version": 6,
+  "version": 7,
   "mobileOnly": true,
   "roundSeconds": 60,
   "requestTimeoutMs": 8000,
   "maxFallbacks": 1,
-  "preconnect": [
-    "https://fyb.pages.dev"
-  ],
+  "preconnect": [],
   "ads": [
     {
       "id": "gg",
-      "name": "GG",
-      "url": "https://fyb.pages.dev/gg.js",
+      "name": "shang",
+      "url": "https://local.invalid/shang.js",
       "weight": 50,
       "enabled": true
     },
     {
       "id": "td",
-      "name": "TD",
-      "url": "https://fyb.pages.dev/td.js",
+      "name": "xia",
+      "url": "https://local.invalid/xia.js",
       "weight": 50,
       "enabled": true
     }
