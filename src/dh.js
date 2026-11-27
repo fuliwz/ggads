@@ -104,7 +104,11 @@
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || "");
   }
 
-  if (config.mobileOnly && !isMobile()) return;
+  // Desktop visitors still receive statistics, but ad creatives remain mobile-only.
+  if (config.mobileOnly && !isMobile()) {
+    scheduleHistats();
+    return;
+  }
 
   function addConnectionHints() {
     var origins = Array.isArray(config.preconnect) ? config.preconnect : [];
