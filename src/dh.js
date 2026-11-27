@@ -9,6 +9,20 @@
 
   var config = STATIC_CONFIG;
 
+  // Resolve bundled creatives relative to the deployed loader URL.
+  // "gg"/"td" IDs and weights stay stable to preserve rotation history.
+  var loaderUrl = document.currentScript && document.currentScript.src
+    ? document.currentScript.src
+    : new URL("dh.js", location.href).href;
+  var localBase = new URL(".", loaderUrl).href;
+  config = Object.assign({}, config, {
+    preconnect: [],
+    ads: [
+      { id: "gg", name: "shang", url: new URL("shang.js", localBase).href, weight: 50, enabled: true },
+      { id: "td", name: "xia", url: new URL("xia.js", localBase).href, weight: 50, enabled: true }
+    ]
+  });
+
   // Load the bundled ad scripts from this project's own dist directory.
   // Keep the existing IDs and weights so the established random rotation
   // and per-round visitation logic remains unchanged.
