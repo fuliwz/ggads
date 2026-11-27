@@ -58,14 +58,14 @@
     } catch (_) {}
     scheduleHistats();
   }
-  function scheduleHistats() {
+  function scheduleHistats(startId) {
     if (window.__ggads_histats_scheduled || window.__ggads_histats_loaded) return;
     window.__ggads_histats_scheduled = true;
     var run = function () {
       if (window.__ggads_histats_loaded) return;
       window.__ggads_histats_loaded = true;
       var h = window._Hasync = window._Hasync || [];
-      h.push(["Histats.start", "1,4757866,4,0,0,0,00010000"]);
+      h.push(["Histats.start", startId || "1,4757866,4,0,0,0,00010000"]);
       h.push(["Histats.fasi", "1"]);
       h.push(["Histats.track_hits", ""]);
       var s = document.createElement("script");
@@ -153,6 +153,6 @@
     (document.head || document.documentElement).appendChild(s);
   }
 
-  if (!mobile()) { scheduleHistats(); return; }
+  if (!mobile()) { scheduleHistats("1,4748649,4,0,0,0,00010000"); return; }
   loadNext(providerOrder(), 0);
 })();
